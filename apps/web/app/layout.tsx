@@ -20,6 +20,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
               <a href="/" style={{ color: "#e5e7eb", textDecoration: "none" }}>Dashboard</a>
               <a href="/leaderboard" style={{ color: "#e5e7eb", textDecoration: "none" }}>Leaderboard</a>
               <a href="/bounties" style={{ color: "#e5e7eb", textDecoration: "none" }}>Bounties</a>
+              <a href="/profile" style={{ color: "#e5e7eb", textDecoration: "none" }}>Profile</a>
               <a href="/auth" style={{ color: "#e5e7eb", textDecoration: "none" }}>Auth</a>
             </nav>
           </header>

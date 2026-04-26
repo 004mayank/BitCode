@@ -7,11 +7,55 @@ import { requireAdmin, requireUser } from "./auth.js";
 
 export const apiRouter = Router();
 
+async function recomputeUserStats(userId: string) {
+  const [subsAgg, winsAgg, attemptsAgg] = await Promise.all([
+    db.submission.aggregate({
+      where: { userId },
+      _count: { _all: true },
+      _avg: { finalScoreTotal: true, autoScoreTotal: true, manualScoreTotal: true }
+    }),
+    db.submission.aggregate({
+      where: { userId, status: "WINNER" },
+      _count: { _all: true }
+    }),
+    db.attempt.aggregate({
+      where: { userId, status: "EVALUATED", scoreTotal: { not: null } },
+      _avg: { scoreTotal: true }
+    })
+  ]);
+
+  const payouts = await db.payout.findMany({ where: { userId, status: { in: ["PENDING", "APPROVED", "SENT"] } } });
+  const bountyEarnedPts = payouts.reduce((s, p) => s + (p.amountPts || 0), 0);
+  const bountiesWon = winsAgg._count._all;
+  const submissionsCount = subsAgg._count._all;
+
+  const avgAttemptScore = Math.round(Number(attemptsAgg._avg.scoreTotal || 0));
+  // Reputation v2: points + avg score weight + wins bonus.
+  const reputationPts = Math.max(0, Math.round(bountyEarnedPts + avgAttemptScore * 2 + bountiesWon * 100));
+
+  const avgSubmissionScore = Math.round(
+    Number(subsAgg._avg.finalScoreTotal ?? subsAgg._avg.manualScoreTotal ?? subsAgg._avg.autoScoreTotal ?? 0)
+  );
+
+  await db.userStats.upsert({
+    where: { userId },
+    update: { reputationPts, bountyEarnedPts, bountiesWon, submissionsCount, avgSubmissionScore },
+    create: { userId, reputationPts, bountyEarnedPts, bountiesWon, submissionsCount, avgSubmissionScore }
+  });
+}
+
 // Auth: require Bearer token (NextAuth JWT) for write endpoints.
 
 apiRouter.get("/challenges", async (_req, res) => {
   const challenges = await db.challenge.findMany({ orderBy: { createdAt: "desc" } });
   res.json({ ok: true, challenges });
+});
+
+apiRouter.get("/me", async (req, res) => {
+  const user = await requireUser(req).catch((e) => ({ error: String(e?.message || e) } as any));
+  if ((user as any).error) return res.status(401).json({ ok: false, error: (user as any).error });
+  const stats = await db.userStats.findFirst({ where: { userId: (user as any).id } });
+  res.json({ ok: true, user, stats });
 });
 
 apiRouter.post("/attempts", async (req, res) => {
@@ -69,6 +113,7 @@ apiRouter.post("/attempts/submit", async (req, res) => {
     }
   });
 
+  await recomputeUserStats((user as any).id);
   res.json({ ok: true, attempt: updated });
 });
 
@@ -114,6 +159,8 @@ apiRouter.get("/attempts/:attemptId/evaluate/stream", async (req, res) => {
       score: breakdown as any
     }
   });
+
+  await recomputeUserStats((user as any).id);
 
   send("done", { ok: true, attemptId: saved.id, total: saved.scoreTotal });
   res.end();
@@ -251,6 +298,8 @@ apiRouter.post("/bounties/:bountyId/submissions", async (req, res) => {
       status: "SUBMITTED"
     }
   });
+
+  await recomputeUserStats((user as any).id);
   res.json({ ok: true, submission: sub });
 });
 
@@ -342,6 +391,8 @@ apiRouter.post("/bounties/:bountyId/award", async (req, res) => {
           amountPts: w.amountPts
         }
       });
+
+      await recomputeUserStats(sub.userId);
     }
   }
 
