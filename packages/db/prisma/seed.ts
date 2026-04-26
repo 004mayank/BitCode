@@ -1,7 +1,7 @@
 import { db } from "../src/index.js";
 
 async function main() {
-  // Seed 3 challenges.
+  // Seed a mixed set of real-world AI-native challenges.
   const challenges = [
     {
       slug: "debug-auth-callback",
@@ -40,6 +40,150 @@ async function main() {
       rubric: {
         correctness: "Behavior preserved; tests added; refactor is clean.",
         aiUsage: "Uses AI for review and improvement, but validates with tests."
+      }
+    },
+
+    {
+      slug: "fix-n-plus-1-queries",
+      title: "Fix N+1 queries in a feed endpoint",
+      description: "Identify and remove an N+1 query pattern; add a regression perf test.",
+      difficulty: 3,
+      tags: ["backend", "database", "performance", "debugging"],
+      prompt:
+        "A /feed endpoint is slow in production due to N+1 queries. Use logs + query analysis to find the cause, fix it (e.g., joins/includes/batching), and add a regression test or measurement to prevent reintroduction.",
+      rubric: {
+        correctness: "Endpoint returns same results; query count reduced; test/measurement added.",
+        aiUsage: "Uses AI to propose hypotheses, but validates with actual query plans/metrics."
+      }
+    },
+    {
+      slug: "design-rate-limiter",
+      title: "Design and implement an API rate limiter",
+      description: "Add per-user and per-IP rate limiting with clear headers and safe defaults.",
+      difficulty: 2,
+      tags: ["backend", "security", "api"],
+      prompt:
+        "Implement a rate limiter for an Express API: 60 rpm per user + 120 rpm per IP. Return standard rate limit headers, handle bursty traffic, and document tradeoffs. Provide tests.",
+      rubric: {
+        correctness: "Limits enforced; headers correct; tests cover edge cases.",
+        aiUsage: "Prompts include constraints (headers, algorithm, storage), and iterates with tests."
+      }
+    },
+    {
+      slug: "nextjs-rsc-cache-bug",
+      title: "Fix a Next.js caching bug with stale user data",
+      description: "Diagnose stale data caused by caching and fix with correct cache settings.",
+      difficulty: 3,
+      tags: ["frontend", "nextjs", "debugging"],
+      prompt:
+        "A Next.js App Router page shows another user’s data intermittently due to caching/memoization. Identify root cause and fix using the right cache directives and fetch options. Add a regression test or reproduction doc.",
+      rubric: {
+        correctness: "No cross-user leakage; caching still works where safe.",
+        aiUsage: "Uses AI to navigate Next.js caching rules; verifies with reproduction steps."
+      }
+    },
+    {
+      slug: "build-monaco-editor-submission",
+      title: "Add an in-browser code editor with submission bundling",
+      description: "Embed Monaco, persist files, and generate a submission bundle.",
+      difficulty: 3,
+      tags: ["frontend", "fullstack", "ux"],
+      prompt:
+        "Add a Monaco-based editor to a challenge page. Users can create/edit multiple files, and submission generates a tar/zip bundle or JSON artifact. Persist drafts locally and on server.",
+      rubric: {
+        correctness: "Editor works; multi-file; submission artifact reproducible.",
+        aiUsage: "Prompts decompose UI state, persistence, and bundling; validates with manual QA."
+      }
+    },
+    {
+      slug: "ci-gate-for-submissions",
+      title: "Add CI gating for submissions",
+      description: "Introduce a standard CI workflow and block awarding if checks fail.",
+      difficulty: 4,
+      tags: ["devops", "ci", "quality"],
+      prompt:
+        "Design a CI standard for BitCode submissions (lint + test). Add logic that prevents awarding bounties if required checks failed or are missing. Provide a migration plan for old submissions.",
+      rubric: {
+        correctness: "Checks enforced; awarding rules documented; backwards compatibility handled.",
+        aiUsage: "Uses AI to draft YAML + policy; confirms with real CI runs."
+      }
+    },
+    {
+      slug: "observability-sse-memory-leak",
+      title: "Find and fix an SSE memory leak",
+      description: "Debug an SSE endpoint that leaks listeners and memory over time.",
+      difficulty: 4,
+      tags: ["backend", "realtime", "observability", "debugging"],
+      prompt:
+        "An SSE endpoint slowly increases memory usage and CPU. Reproduce, identify leak source (listeners, buffers, closures), fix it, and add monitoring/metrics to prevent regressions.",
+      rubric: {
+        correctness: "Leak fixed; metrics show stability; fix covered by test or load script.",
+        aiUsage: "Uses AI to suggest leak patterns; validates with heap snapshots or metrics."
+      }
+    },
+    {
+      slug: "secure-file-upload",
+      title: "Secure file upload pipeline",
+      description: "Implement file uploads with validation, scanning hooks, and signed URLs.",
+      difficulty: 4,
+      tags: ["security", "backend", "fullstack"],
+      prompt:
+        "Implement a secure file upload flow: signed upload URLs, MIME sniffing, size limits, and a stub for malware scanning. Store metadata in DB. Add tests and threat model notes.",
+      rubric: {
+        correctness: "Validation correct; no path traversal; signed URLs safe; tests cover bad inputs.",
+        aiUsage: "Prompts include threat model + constraints; iterates after testing."
+      }
+    },
+    {
+      slug: "db-migration-with-zero-downtime",
+      title: "Zero-downtime DB migration",
+      description: "Perform a breaking schema change safely using expand/contract.",
+      difficulty: 5,
+      tags: ["database", "devops", "architecture"],
+      prompt:
+        "You need to rename a column used in production without downtime. Provide an expand/contract migration plan, code changes, and rollback strategy. Implement in a sample app.",
+      rubric: {
+        correctness: "No downtime; rollback possible; plan is complete.",
+        aiUsage: "Uses AI for plan drafting, but validates with steps + safety checks."
+      }
+    },
+    {
+      slug: "build-eval-rubric-prompt",
+      title: "Design a scoring rubric prompt for AI workflow",
+      description: "Create an LLM rubric that evaluates workflow quality with calibration.",
+      difficulty: 3,
+      tags: ["ai", "product", "evaluation"],
+      prompt:
+        "Design a rubric prompt that scores prompt quality, iteration intelligence, and debugging method. Include calibration examples and explainability requirements. Provide a JSON output schema.",
+      rubric: {
+        correctness: "Rubric produces consistent structured output; easy to debug.",
+        aiUsage: "Uses AI to iterate on rubric; tests against multiple sample transcripts."
+      }
+    },
+    {
+      slug: "frontend-perf-investigation",
+      title: "Frontend performance investigation and fix",
+      description: "Investigate slow interactions and fix re-renders with profiling.",
+      difficulty: 3,
+      tags: ["frontend", "performance", "debugging"],
+      prompt:
+        "A dashboard feels sluggish. Use React Profiler to identify excessive re-renders, fix with memoization or state restructuring, and verify improvements. Document findings.",
+      rubric: {
+        correctness: "Perf improved with evidence; no functional regressions.",
+        aiUsage: "Uses AI to interpret profiler output; confirms with measurements."
+      }
+    },
+    {
+      slug: "implement-permissions-model",
+      title: "Implement a permissions model for orgs",
+      description: "Add role-based access control for org members and endpoints.",
+      difficulty: 4,
+      tags: ["backend", "security", "architecture"],
+      prompt:
+        "Implement RBAC for Organization members: OWNER/ADMIN/REVIEWER/MEMBER. Enforce permissions on bounty creation, review, and awarding. Add tests for permission matrix.",
+      rubric: {
+        correctness: "Matrix enforced; tests comprehensive; least privilege.",
+        aiUsage: "Prompts include role matrix + edge cases; iterates with tests."
       }
     }
   ] as const;
