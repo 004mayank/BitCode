@@ -1,0 +1,124 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum AttemptStatus {
+  IN_PROGRESS
+  SUBMITTED
+  EVALUATED
+}
+
+enum PromptEventType {
+  prompt
+  assistant_reply
+  iteration
+  note
+  external_tool
+}
+
+model User {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  email     String?  @unique
+  name      String?
+  image     String?
+  github    String?  @unique
+
+  attempts  Attempt[]
+}
+
+model Challenge {
+  id          String   @id @default(cuid())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  slug        String   @unique
+  title       String
+  description String
+  difficulty  Int      @default(1)
+  tags        String[]
+
+  prompt      String
+  rubric      Json?
+
+  attempts    Attempt[]
+  bounties    Bounty[]
+}
+
+model Attempt {
+  id            String        @id @default(cuid())
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  userId        String
+  challengeId   String
+  status        AttemptStatus @default(IN_PROGRESS)
+
+  startedAt     DateTime      @default(now())
+  endedAt       DateTime?
+  submissionUrl String?
+  summary       String?
+
+  scoreTotal    Int?
+  score         Json?
+
+  user          User          @relation(fields: [userId], references: [id])
+  challenge      Challenge     @relation(fields: [challengeId], references: [id])
+  events        PromptEvent[]
+}
+
+model PromptEvent {
+  id        String          @id @default(cuid())
+  createdAt DateTime        @default(now())
+
+  attemptId String
+  type      PromptEventType
+  text      String
+  meta      Json?
+
+  attempt   Attempt         @relation(fields: [attemptId], references: [id])
+
+  @@index([attemptId, createdAt])
+}
+
+model Bounty {
+  id          String   @id @default(cuid())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  challengeId String
+  title       String
+  description String
+  rewardPts   Int      @default(0)
+  deadline    DateTime?
+
+  challenge   Challenge @relation(fields: [challengeId], references: [id])
+  submissions Submission[]
+}
+
+model Submission {
+  id          String   @id @default(cuid())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  bountyId    String
+  userId      String
+  url         String
+  note        String?
+
+  scoreTotal  Int?
+  score       Json?
+
+  bounty      Bounty   @relation(fields: [bountyId], references: [id])
+  user        User     @relation(fields: [userId], references: [id])
+
+  @@index([bountyId, createdAt])
+}
+
