@@ -3,20 +3,11 @@ import { db } from "@bitcode/db";
 import { z } from "zod";
 import { CreateAttemptSchema, LogPromptEventSchema, SubmitAttemptSchema } from "@bitcode/shared";
 import { scoreAttemptHeuristic } from "@bitcode/shared";
+import { requireAdmin, requireUser } from "./auth.js";
 
 export const apiRouter = Router();
 
-// Temporary auth for MVP scaffold: accept X-User-Id or create a demo user.
-async function getUserId(req: any) {
-  const hdr = String(req.header("x-user-id") || "").trim();
-  if (hdr) return hdr;
-  const demo = await db.user.upsert({
-    where: { github: "demo" },
-    update: {},
-    create: { github: "demo", name: "Demo User" }
-  });
-  return demo.id;
-}
+// Auth: require Bearer token (NextAuth JWT) for write endpoints.
 
 apiRouter.get("/challenges", async (_req, res) => {
   const challenges = await db.challenge.findMany({ orderBy: { createdAt: "desc" } });
@@ -26,10 +17,11 @@ apiRouter.get("/challenges", async (_req, res) => {
 apiRouter.post("/attempts", async (req, res) => {
   const parsed = CreateAttemptSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
-  const userId = await getUserId(req);
+  const user = await requireUser(req).catch((e) => ({ error: String(e?.message || e) } as any));
+  if ((user as any).error) return res.status(401).json({ ok: false, error: (user as any).error });
   const attempt = await db.attempt.create({
     data: {
-      userId,
+      userId: (user as any).id,
       challengeId: parsed.data.challengeId,
       status: "IN_PROGRESS"
     }
@@ -40,9 +32,10 @@ apiRouter.post("/attempts", async (req, res) => {
 apiRouter.post("/attempts/events", async (req, res) => {
   const parsed = LogPromptEventSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
-  const userId = await getUserId(req);
+  const user = await requireUser(req).catch((e) => ({ error: String(e?.message || e) } as any));
+  if ((user as any).error) return res.status(401).json({ ok: false, error: (user as any).error });
 
-  const attempt = await db.attempt.findFirst({ where: { id: parsed.data.attemptId, userId } });
+  const attempt = await db.attempt.findFirst({ where: { id: parsed.data.attemptId, userId: (user as any).id } });
   if (!attempt) return res.status(404).json({ ok: false, error: "Attempt not found" });
 
   const ev = await db.promptEvent.create({
@@ -60,9 +53,10 @@ apiRouter.post("/attempts/events", async (req, res) => {
 apiRouter.post("/attempts/submit", async (req, res) => {
   const parsed = SubmitAttemptSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
-  const userId = await getUserId(req);
+  const user = await requireUser(req).catch((e) => ({ error: String(e?.message || e) } as any));
+  if ((user as any).error) return res.status(401).json({ ok: false, error: (user as any).error });
 
-  const attempt = await db.attempt.findFirst({ where: { id: parsed.data.attemptId, userId } });
+  const attempt = await db.attempt.findFirst({ where: { id: parsed.data.attemptId, userId: (user as any).id } });
   if (!attempt) return res.status(404).json({ ok: false, error: "Attempt not found" });
 
   const updated = await db.attempt.update({
@@ -81,9 +75,10 @@ apiRouter.post("/attempts/submit", async (req, res) => {
 // SSE: stream evaluation for an attempt.
 apiRouter.get("/attempts/:attemptId/evaluate/stream", async (req, res) => {
   const attemptId = String(req.params.attemptId || "");
-  const userId = await getUserId(req);
+  const user = await requireUser(req).catch((e) => ({ error: String(e?.message || e) } as any));
+  if ((user as any).error) return res.status(401).json({ ok: false, error: (user as any).error });
 
-  const attempt = await db.attempt.findFirst({ where: { id: attemptId, userId }, include: { events: true } });
+  const attempt = await db.attempt.findFirst({ where: { id: attemptId, userId: (user as any).id }, include: { events: true } });
   if (!attempt) return res.status(404).json({ ok: false, error: "Attempt not found" });
 
   res.setHeader("Content-Type", "text/event-stream");
@@ -146,6 +141,13 @@ const CreateOrgSchema = z.object({
 apiRouter.post("/orgs", async (req, res) => {
   const parsed = CreateOrgSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  const user = await requireUser(req).catch((e) => ({ error: String(e?.message || e) } as any));
+  if ((user as any).error) return res.status(401).json({ ok: false, error: (user as any).error });
+  try {
+    requireAdmin(user as any);
+  } catch (e: any) {
+    return res.status(403).json({ ok: false, error: String(e?.message || e) });
+  }
   const org = await db.organization.create({ data: parsed.data });
   res.json({ ok: true, org });
 });
@@ -171,6 +173,14 @@ const CreateBountySchema = z.object({
 apiRouter.post("/bounties", async (req, res) => {
   const parsed = CreateBountySchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+
+  const user = await requireUser(req).catch((e) => ({ error: String(e?.message || e) } as any));
+  if ((user as any).error) return res.status(401).json({ ok: false, error: (user as any).error });
+  try {
+    requireAdmin(user as any);
+  } catch (e: any) {
+    return res.status(403).json({ ok: false, error: String(e?.message || e) });
+  }
 
   const bounty = await db.bounty.create({
     data: {
@@ -224,7 +234,8 @@ apiRouter.post("/bounties/:bountyId/submissions", async (req, res) => {
   const parsed = CreateSubmissionSchema.safeParse({ ...req.body, bountyId });
   if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
 
-  const userId = await getUserId(req);
+  const user = await requireUser(req).catch((e) => ({ error: String(e?.message || e) } as any));
+  if ((user as any).error) return res.status(401).json({ ok: false, error: (user as any).error });
   const bounty = await db.bounty.findFirst({ where: { id: bountyId } });
   if (!bounty) return res.status(404).json({ ok: false, error: "Bounty not found" });
   if (bounty.status !== "OPEN") return res.status(409).json({ ok: false, error: `Bounty not open (status=${bounty.status})` });
@@ -232,7 +243,7 @@ apiRouter.post("/bounties/:bountyId/submissions", async (req, res) => {
   const sub = await db.submission.create({
     data: {
       bountyId,
-      userId,
+      userId: (user as any).id,
       repoUrl: parsed.data.repoUrl,
       prUrl: parsed.data.prUrl ?? null,
       commitSha: parsed.data.commitSha ?? null,
@@ -256,14 +267,20 @@ apiRouter.post("/submissions/:submissionId/reviews", async (req, res) => {
   const parsed = ReviewSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
 
-  const reviewerId = await getUserId(req);
+  const user = await requireUser(req).catch((e) => ({ error: String(e?.message || e) } as any));
+  if ((user as any).error) return res.status(401).json({ ok: false, error: (user as any).error });
+  try {
+    requireAdmin(user as any);
+  } catch (e: any) {
+    return res.status(403).json({ ok: false, error: String(e?.message || e) });
+  }
   const submission = await db.submission.findFirst({ where: { id: submissionId }, include: { bounty: true } });
   if (!submission) return res.status(404).json({ ok: false, error: "Submission not found" });
 
   const review = await db.submissionReview.create({
     data: {
       submissionId,
-      reviewerId,
+      reviewerId: (user as any).id,
       orgId: submission.bounty.orgId ?? null,
       comment: parsed.data.comment,
       scoreTotal: parsed.data.scoreTotal ?? null,
@@ -290,6 +307,14 @@ apiRouter.post("/bounties/:bountyId/award", async (req, res) => {
   const bountyId = String(req.params.bountyId || "");
   const parsed = AwardSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+
+  const user = await requireUser(req).catch((e) => ({ error: String(e?.message || e) } as any));
+  if ((user as any).error) return res.status(401).json({ ok: false, error: (user as any).error });
+  try {
+    requireAdmin(user as any);
+  } catch (e: any) {
+    return res.status(403).json({ ok: false, error: String(e?.message || e) });
+  }
 
   const bounty = await db.bounty.findFirst({ where: { id: bountyId }, include: { submissions: true } });
   if (!bounty) return res.status(404).json({ ok: false, error: "Bounty not found" });

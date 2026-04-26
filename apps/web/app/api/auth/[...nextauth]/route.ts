@@ -15,6 +15,13 @@ export const { handlers, auth } = NextAuth({
   ],
   session: { strategy: "database" },
   callbacks: {
+    async jwt({ token, profile }) {
+      // Capture GitHub login for downstream authorization.
+      if (profile && typeof (profile as any).login === "string") {
+        (token as any).github = (profile as any).login;
+      }
+      return token;
+    },
     async session({ session, user }) {
       // Expose user id to the client.
       if (session.user) {
@@ -27,4 +34,3 @@ export const { handlers, auth } = NextAuth({
 
 export const GET = handlers.GET;
 export const POST = handlers.POST;
-
