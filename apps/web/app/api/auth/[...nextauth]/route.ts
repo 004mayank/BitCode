@@ -22,6 +22,21 @@ export const { handlers, auth } = NextAuth({
       }
       return token;
     },
+    async signIn({ user, profile }) {
+      // Persist GitHub login to User.github so downstream services can rely on it.
+      const login = profile && typeof (profile as any).login === "string" ? (profile as any).login : null;
+      if (login && user?.id) {
+        try {
+          await prisma.user.update({
+            where: { id: user.id },
+            data: { github: login }
+          });
+        } catch {
+          // best-effort
+        }
+      }
+      return true;
+    },
     async session({ session, user }) {
       // Expose user id to the client.
       if (session.user) {
