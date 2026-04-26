@@ -3,6 +3,72 @@ import { db } from "../src/index.js";
 async function main() {
   // Seed a mixed set of real-world AI-native challenges.
   const challenges = [
+    // --- AI track (mixed) ---
+    {
+      slug: "rag-docs-grounded-answers",
+      title: "Build a grounded RAG system for docs",
+      description: "Implement RAG with citations and offline evaluation; reduce hallucinations.",
+      difficulty: 4,
+      tags: ["ai", "rag", "evaluation", "backend"],
+      prompt:
+        "Build a RAG pipeline over a documentation corpus. Requirements: hybrid retrieval (BM25 + embeddings), reranking, citations in responses, and an offline eval set (at least 30 Q/A). Measure and improve groundedness and answer relevance across 3 iterations.",
+      rubric: {
+        correctness: "Answers cite sources; eval harness exists; improvements measured and reproducible.",
+        aiUsage: "Uses AI to iterate on retrieval + prompts; validates with offline eval and failure analysis."
+      }
+    },
+    {
+      slug: "agent-tool-use-guardrails",
+      title: "Agent tool-use with guardrails and budgets",
+      description: "Build an agent with tool calling, retries, stop conditions, and cost budgets.",
+      difficulty: 4,
+      tags: ["ai", "agents", "security", "evaluation"],
+      prompt:
+        "Implement a tool-using agent that completes a multi-step task (e.g., triage issues, draft PR plan). Add guardrails: tool allowlist, max steps, cost budget, retry policies, and safe error handling. Provide a trace log format and tests for stop conditions.",
+      rubric: {
+        correctness: "Agent respects budgets and stop conditions; tool calls are constrained; traces are readable.",
+        aiUsage: "Prompts show decomposition; iterates using traces; adds tests for failure modes."
+      }
+    },
+    {
+      slug: "llm-judge-calibration",
+      title: "LLM judge rubric + calibration suite",
+      description: "Design a scoring rubric prompt and calibrate against a labeled set.",
+      difficulty: 3,
+      tags: ["ai", "evaluation", "product"],
+      prompt:
+        "Create an LLM-based judge that scores workflow quality (prompt quality, iteration intelligence, debugging method). Build a calibration set of 40 labeled transcripts with target scores. Measure variance across runs and implement mitigations (few-shots, structured output, self-consistency, or secondary checks).",
+      rubric: {
+        correctness: "Judge outputs structured JSON; calibration set exists; variance measured and reduced.",
+        aiUsage: "Uses AI to refine rubric; validates on labeled set; documents tradeoffs."
+      }
+    },
+    {
+      slug: "prompt-injection-redteam-suite",
+      title: "Prompt injection red-team suite for tool agents",
+      description: "Build an injection test suite and implement mitigations.",
+      difficulty: 5,
+      tags: ["ai", "security", "agents"],
+      prompt:
+        "Build a red-team suite of prompt injection attacks against a tool-using agent (data exfiltration, tool misuse, instruction hijacking). Implement mitigations: system prompt isolation, tool gating, input sanitization, and refusal policies. Provide before/after results.",
+      rubric: {
+        correctness: "Suite reproducible; mitigations materially reduce successful attacks; results reported.",
+        aiUsage: "Uses AI to generate attack variants; verifies with automated runs and metrics."
+      }
+    },
+    {
+      slug: "rag-chunking-ablation",
+      title: "RAG chunking + retrieval ablation study",
+      description: "Run ablations on chunk sizes, overlap, embeddings, and rerankers.",
+      difficulty: 4,
+      tags: ["ai", "rag", "evaluation"],
+      prompt:
+        "Given a docs corpus and Q/A set, run an ablation study: chunk size/overlap, embedding model choice, BM25 vs hybrid, reranking on/off. Report metrics and pick a final configuration with justification.",
+      rubric: {
+        correctness: "Ablations run end-to-end; metrics + plots/tables; final choice justified.",
+        aiUsage: "Uses AI to design experiment plan; validates with measured results."
+      }
+    },
     {
       slug: "debug-auth-callback",
       title: "Debug a broken OAuth callback",
@@ -222,6 +288,37 @@ async function main() {
 
   // Seed a few OPEN bounties so the feed is alive.
   const openBountySpecs = [
+    // --- AI bounties ---
+    {
+      slug: "rag-docs-grounded-answers",
+      title: "AI: Grounded RAG with citations (1500 pts)",
+      description: "Ship a grounded RAG pipeline + offline eval set. Improve groundedness across iterations.",
+      rewardPts: 1500
+    },
+    {
+      slug: "llm-judge-calibration",
+      title: "AI: LLM Judge Calibration (1200 pts)",
+      description: "Build a rubric judge + labeled calibration set + variance mitigation.",
+      rewardPts: 1200
+    },
+    {
+      slug: "agent-tool-use-guardrails",
+      title: "AI: Agent Guardrails + Budgets (1300 pts)",
+      description: "Implement tool agent with allowlists, budgets, traces, stop conditions.",
+      rewardPts: 1300
+    },
+    {
+      slug: "prompt-injection-redteam-suite",
+      title: "AI: Prompt Injection Red-Team Suite (2000 pts)",
+      description: "Create injection suite + mitigations with before/after metrics.",
+      rewardPts: 2000
+    },
+    {
+      slug: "rag-chunking-ablation",
+      title: "AI: RAG Ablation Study (1100 pts)",
+      description: "Run chunking/retrieval ablations and justify final config.",
+      rewardPts: 1100
+    },
     {
       slug: "fix-n-plus-1-queries",
       title: "Fix N+1 Queries (500 pts)",
