@@ -4,6 +4,9 @@ import { z } from "zod";
 import { CreateAttemptSchema, LogPromptEventSchema, SubmitAttemptSchema } from "@bitcode/shared";
 import { scoreAttemptHeuristic } from "@bitcode/shared";
 import { requireAdmin, requireUser } from "./auth.js";
+import { RunStore } from "./runStore.js";
+import { nanoid } from "nanoid";
+import { spawn } from "node:child_process";
 
 export const apiRouter = Router();
 
@@ -284,6 +287,133 @@ apiRouter.get("/bounties/:bountyId", async (req, res) => {
   });
   if (!bounty) return res.status(404).json({ ok: false, error: "Bounty not found" });
   res.json({ ok: true, bounty });
+});
+
+// --- Docker execution (Python v1) ---
+const RunSchema = z.object({
+  language: z.enum(["python"]).default("python"),
+  entry: z.string().default("main.py"),
+  timeoutMs: z.number().int().min(1000).max(30000).default(10000),
+  files: z
+    .array(
+      z.object({
+        path: z.string().min(1).max(200),
+        content: z.string().max(200000)
+      })
+    )
+    .min(1)
+});
+
+apiRouter.post("/run", async (req, res) => {
+  const user = await requireUser(req).catch((e) => ({ error: String(e?.message || e) } as any));
+  if ((user as any).error) return res.status(401).json({ ok: false, error: (user as any).error });
+
+  const parsed = RunSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+
+  const runId = nanoid(10);
+  RunStore.create(runId);
+
+  // Ensure image exists; build is handled out-of-band in dev.
+  const image = "bitcode-runner-python:local";
+  const dockerArgs = [
+    "run",
+    "--rm",
+    "-i",
+    "--network",
+    "none",
+    "--cpus",
+    "1",
+    "--memory",
+    "512m",
+    "--pids-limit",
+    "128",
+    image
+  ];
+
+  const child = spawn("docker", dockerArgs, { stdio: ["pipe", "pipe", "pipe"] });
+  const payload = { ...parsed.data };
+  child.stdin.write(JSON.stringify(payload));
+  child.stdin.end();
+
+  let tail = "";
+  function onData(buf: Buffer, stream: "stdout" | "stderr") {
+    const s = buf.toString("utf8");
+    for (const line of s.split(/\r?\n/)) {
+      if (!line) continue;
+      RunStore.appendLog(runId, `${stream}: ${line}`);
+      if (line.startsWith("[result] ")) {
+        try {
+          const j = JSON.parse(line.slice(9));
+          RunStore.setResult(runId, j);
+        } catch (e: any) {
+          RunStore.setError(runId, `bad result json: ${String(e?.message || e)}`);
+        }
+      }
+      tail = (tail + "\n" + line).slice(-20000);
+    }
+  }
+  child.stdout.on("data", (b) => onData(b as Buffer, "stdout"));
+  child.stderr.on("data", (b) => onData(b as Buffer, "stderr"));
+  child.on("exit", (code) => {
+    const r = RunStore.get(runId);
+    if (!r) return;
+    if (r.status === "running") {
+      RunStore.setError(runId, `docker exited code=${code}`);
+    }
+  });
+
+  res.json({ ok: true, runId });
+});
+
+apiRouter.get("/run/:runId/result", async (req, res) => {
+  const user = await requireUser(req).catch((e) => ({ error: String(e?.message || e) } as any));
+  if ((user as any).error) return res.status(401).json({ ok: false, error: (user as any).error });
+  const runId = String(req.params.runId || "");
+  const r = RunStore.get(runId);
+  if (!r) return res.status(404).json({ ok: false, error: "run not found" });
+  res.json({ ok: true, run: r });
+});
+
+apiRouter.get("/run/:runId/stream", async (req, res) => {
+  const user = await requireUser(req).catch((e) => ({ error: String(e?.message || e) } as any));
+  if ((user as any).error) return res.status(401).json({ ok: false, error: (user as any).error });
+  const runId = String(req.params.runId || "");
+  const r = RunStore.get(runId);
+  if (!r) return res.status(404).json({ ok: false, error: "run not found" });
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders?.();
+
+  const startIndex = Number(req.query.from || 0);
+  let idx = isFinite(startIndex) ? startIndex : 0;
+
+  function send(event: string, data: any) {
+    res.write(`event: ${event}\n`);
+    res.write(`data: ${JSON.stringify(data)}\n\n`);
+  }
+
+  const timer = setInterval(() => {
+    const cur = RunStore.get(runId);
+    if (!cur) {
+      clearInterval(timer);
+      res.end();
+      return;
+    }
+    while (idx < cur.logs.length) {
+      send("log", { line: cur.logs[idx], index: idx });
+      idx++;
+    }
+    if (cur.status !== "running") {
+      send("done", { status: cur.status, result: cur.result, error: cur.error });
+      clearInterval(timer);
+      res.end();
+    }
+  }, 250);
+
+  req.on("close", () => clearInterval(timer));
 });
 
 const CreateSubmissionSchema = z.object({

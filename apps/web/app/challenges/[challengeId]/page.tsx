@@ -4,4 +4,3 @@ export default async function Page({ params }: { params: Promise<{ challengeId: 
   const { challengeId } = await params;
   return <ChallengeAttempt challengeId={challengeId} />;
 }
-
