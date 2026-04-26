@@ -176,6 +176,24 @@ apiRouter.get("/leaderboard", async (_req, res) => {
   res.json({ ok: true, top });
 });
 
+apiRouter.get("/leaderboard/reputation", async (_req, res) => {
+  const top = await db.userStats.findMany({
+    orderBy: { reputationPts: "desc" },
+    take: 50,
+    include: { user: true }
+  });
+  res.json({ ok: true, top });
+});
+
+apiRouter.get("/leaderboard/earnings", async (_req, res) => {
+  const top = await db.userStats.findMany({
+    orderBy: { bountyEarnedPts: "desc" },
+    take: 50,
+    include: { user: true }
+  });
+  res.json({ ok: true, top });
+});
+
 // --- Algora-style bounty system (scope B for now: single-admin, but full data model) ---
 
 const CreateOrgSchema = z.object({
