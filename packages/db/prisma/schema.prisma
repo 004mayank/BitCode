@@ -140,6 +140,8 @@ model Organization {
 
   members   OrgMember[]
   bounties  Bounty[]
+  reviews   SubmissionReview[]
+  payouts   Payout[]
 }
 
 model OrgMember {

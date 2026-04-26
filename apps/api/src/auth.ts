@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { db } from "@bitcode/db";
+import { db } from "@bitcode/db/src/index.js";
 
 // Minimal JWT verify for NextAuth (HS256) tokens.
 // NOTE: This is intentionally small for MVP; swap to a library later if needed.
@@ -79,4 +79,3 @@ export function requireAdmin(user: AuthedUser) {
     throw new Error("admin required");
   }
 }
-

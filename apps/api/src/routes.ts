@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db } from "@bitcode/db";
+import { db } from "@bitcode/db/src/index.js";
 import { z } from "zod";
 import { CreateAttemptSchema, LogPromptEventSchema, SubmitAttemptSchema } from "@bitcode/shared";
 import { scoreAttemptHeuristic } from "@bitcode/shared";
