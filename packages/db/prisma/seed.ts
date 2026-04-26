@@ -220,6 +220,70 @@ async function main() {
     create: { orgId: org.id, userId: admin.id, role: "OWNER" }
   });
 
+  // Seed a few OPEN bounties so the feed is alive.
+  const openBountySpecs = [
+    {
+      slug: "fix-n-plus-1-queries",
+      title: "Fix N+1 Queries (500 pts)",
+      description: "Improve a slow feed endpoint by removing N+1 queries. Show your AI workflow and verification.",
+      rewardPts: 500
+    },
+    {
+      slug: "nextjs-rsc-cache-bug",
+      title: "Next.js Cache Bug Hunt (600 pts)",
+      description: "Fix cross-user stale data leakage caused by caching. Provide repro + fix + notes.",
+      rewardPts: 600
+    },
+    {
+      slug: "secure-file-upload",
+      title: "Secure Upload Pipeline (900 pts)",
+      description: "Implement a secure upload flow with validation and threat model notes.",
+      rewardPts: 900
+    },
+    {
+      slug: "observability-sse-memory-leak",
+      title: "SSE Memory Leak (1000 pts)",
+      description: "Reproduce and fix an SSE memory leak. Provide evidence/metrics.",
+      rewardPts: 1000
+    },
+    {
+      slug: "db-migration-with-zero-downtime",
+      title: "Zero-downtime migration plan (1200 pts)",
+      description: "Design and implement an expand/contract migration with rollback.",
+      rewardPts: 1200
+    }
+  ] as const;
+
+  for (const b of openBountySpecs) {
+    const ch = await db.challenge.findFirst({ where: { slug: b.slug } });
+    if (!ch) continue;
+    await db.bounty.upsert({
+      where: { id: `seed-open-${org.id}-${b.slug}` },
+      update: {
+        orgId: org.id,
+        challengeId: ch.id,
+        title: b.title,
+        description: b.description,
+        status: "OPEN",
+        visibility: "PUBLIC",
+        rewardType: "POINTS",
+        rewardPts: b.rewardPts
+      },
+      create: {
+        id: `seed-open-${org.id}-${b.slug}`,
+        orgId: org.id,
+        challengeId: ch.id,
+        title: b.title,
+        description: b.description,
+        status: "OPEN",
+        visibility: "PUBLIC",
+        rewardType: "POINTS",
+        rewardPts: b.rewardPts
+      }
+    });
+  }
+
+  // Keep one AWARDED bounty + winner payout for leaderboards.
   const challenge = await db.challenge.findFirst({ where: { slug: "build-sse-logs" } });
   if (challenge) {
     const bountyId = `seed-bounty-${org.id}`;
