@@ -6,7 +6,7 @@ import { apiGet, apiPost } from "./api";
 export function Bounties() {
   const [items, setItems] = useState<any[]>([]);
   const [err, setErr] = useState<string | null>(null);
-  const [form, setForm] = useState({ challengeId: "", title: "", description: "", rewardPts: 250 });
+  const [form, setForm] = useState({ challengeId: "", title: "", description: "", rewardPts: 250, status: "OPEN" });
 
   async function load() {
     const j = await apiGet<any>("/api/bounties");
@@ -20,7 +20,7 @@ export function Bounties() {
   async function create() {
     setErr(null);
     await apiPost("/api/bounties", form);
-    setForm({ challengeId: "", title: "", description: "", rewardPts: 250 });
+    setForm({ challengeId: "", title: "", description: "", rewardPts: 250, status: "OPEN" });
     await load();
   }
 
@@ -64,20 +64,25 @@ export function Bounties() {
 
       <div style={{ display: "grid", gap: 10 }}>
         {items.map((b) => (
-          <div key={b.id} style={{ padding: 12, borderRadius: 12, border: "1px solid rgba(148,163,184,.18)", background: "#0b1220" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-              <div style={{ fontWeight: 800 }}>{b.title}</div>
-              <div style={{ color: "#93c5fd", fontWeight: 900 }}>{b.rewardPts} pts</div>
+          <a
+            key={b.id}
+            href={`/bounties/${b.id}`}
+            style={{ textDecoration: "none", color: "inherit" }}
+          >
+            <div style={{ padding: 12, borderRadius: 12, border: "1px solid rgba(148,163,184,.18)", background: "#0b1220" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                <div style={{ fontWeight: 800 }}>{b.title}</div>
+                <div style={{ color: "#93c5fd", fontWeight: 900 }}>{b.rewardPts} pts</div>
+              </div>
+              <div style={{ color: "#94a3b8", marginTop: 6 }}>{b.description}</div>
+              <div style={{ color: "#64748b", marginTop: 8, fontSize: 13 }}>
+                Status: {b.status} · Challenge: {b.challenge?.title ?? b.challengeId}
+              </div>
             </div>
-            <div style={{ color: "#94a3b8", marginTop: 6 }}>{b.description}</div>
-            <div style={{ color: "#64748b", marginTop: 8, fontSize: 13 }}>
-              Challenge: {b.challenge?.title ?? b.challengeId}
-            </div>
-          </div>
+          </a>
         ))}
         {!items.length ? <div style={{ color: "#64748b" }}>No bounties yet.</div> : null}
       </div>
     </div>
   );
 }
-
