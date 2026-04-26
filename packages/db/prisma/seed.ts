@@ -52,6 +52,88 @@ async function main() {
     });
   }
 
+  // Seed a demo admin user and a demo bounty with an awarded payout
+  const admin = await db.user.upsert({
+    where: { github: "004mayank" },
+    update: { name: "Mayank" },
+    create: { github: "004mayank", name: "Mayank" }
+  });
+  const demoDev = await db.user.upsert({
+    where: { github: "demo-dev" },
+    update: { name: "Demo Dev" },
+    create: { github: "demo-dev", name: "Demo Dev" }
+  });
+
+  const org = await db.organization.upsert({
+    where: { slug: "bitcode" },
+    update: { name: "BitCode" },
+    create: { slug: "bitcode", name: "BitCode" }
+  });
+
+  await db.orgMember.upsert({
+    where: { orgId_userId: { orgId: org.id, userId: admin.id } },
+    update: { role: "OWNER" },
+    create: { orgId: org.id, userId: admin.id, role: "OWNER" }
+  });
+
+  const challenge = await db.challenge.findFirst({ where: { slug: "build-sse-logs" } });
+  if (challenge) {
+    const bountyId = `seed-bounty-${org.id}`;
+    const bounty = await db.bounty.upsert({
+      where: { id: bountyId },
+      update: {
+        title: "[Seed] Realtime SSE logs bounty",
+        description: "Seed bounty to populate Top Earners/Reputation leaderboards.",
+        status: "AWARDED",
+        visibility: "PUBLIC",
+        rewardType: "POINTS",
+        rewardPts: 500,
+        rewardSplits: { winners: [{ github: "demo-dev", amountPts: 500 }] }
+      },
+      create: {
+        id: bountyId,
+        orgId: org.id,
+        challengeId: challenge.id,
+        title: "[Seed] Realtime SSE logs bounty",
+        description: "Seed bounty to populate Top Earners/Reputation leaderboards.",
+        status: "AWARDED",
+        visibility: "PUBLIC",
+        rewardType: "POINTS",
+        rewardPts: 500,
+        rewardSplits: { winners: [{ github: "demo-dev", amountPts: 500 }] }
+      }
+    });
+
+    const submission = await db.submission.upsert({
+      where: { id: `seed-sub-${bounty.id}` },
+      update: {},
+      create: {
+        id: `seed-sub-${bounty.id}`,
+        bountyId: bounty.id,
+        userId: demoDev.id,
+        status: "WINNER",
+        repoUrl: "https://github.com/004mayank/BitCode",
+        note: "Seed submission",
+        finalScoreTotal: 92
+      }
+    });
+
+    await db.payout.upsert({
+      where: { id: `seed-payout-${submission.id}` },
+      update: { status: "SENT", amountPts: 500 },
+      create: {
+        id: `seed-payout-${submission.id}`,
+        bountyId: bounty.id,
+        submissionId: submission.id,
+        userId: demoDev.id,
+        orgId: org.id,
+        status: "SENT",
+        provider: "NONE",
+        amountPts: 500
+      }
+    });
+  }
+
   console.log(`Seeded ${challenges.length} challenges`);
 }
 
@@ -63,4 +145,3 @@ main()
   .finally(async () => {
     await db.$disconnect();
   });
-
