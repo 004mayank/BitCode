@@ -53,14 +53,14 @@ export function SidebarNav() {
   return (
     <nav className="sidebar">
       {/* Logo */}
-      <div style={{ padding: "16px 14px 12px" }}>
+      <div style={{ padding: "14px 14px 10px" }}>
         <Link href="/" style={{ textDecoration: "none", display: "block" }}>
           <Image
             src={isDark ? "/bitcode-dark.svg" : "/bitcode-light.svg"}
             alt="BitCode"
-            width={160}
-            height={160}
-            style={{ width: "100%", height: "auto", display: "block", borderRadius: 10 }}
+            width={180}
+            height={60}
+            style={{ width: "100%", height: "auto", display: "block" }}
             priority
           />
         </Link>
