@@ -14,6 +14,9 @@ export const { handlers, auth } = NextAuth({
     })
   ],
   session: { strategy: "database" },
+  pages: {
+    signIn: "/auth",   // always use our custom page, never NextAuth's default
+  },
   callbacks: {
     async jwt({ token, profile }) {
       // Capture GitHub login for downstream authorization.
