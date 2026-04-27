@@ -2,13 +2,14 @@ import { Bounties } from "../../components/Bounties";
 
 export default function Page() {
   return (
-    <div className="card" style={{ padding: 16 }}>
-      <div style={{ fontSize: 18, fontWeight: 800 }}>Bounties</div>
-      <div style={{ color: "#94a3b8", marginTop: 6 }}>Points-only MVP (no Stripe yet).</div>
-      <div style={{ marginTop: 14 }}>
-        <Bounties />
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      <div>
+        <div style={{ fontSize: 22, fontWeight: 800 }}>Bounties</div>
+        <div style={{ color: "var(--text-2)", marginTop: 4 }}>
+          Compete on open challenges. Earn points. Build your AI developer profile.
+        </div>
       </div>
+      <Bounties />
     </div>
   );
 }
-
