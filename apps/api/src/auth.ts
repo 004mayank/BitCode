@@ -35,6 +35,27 @@ export type AuthedUser = {
   name?: string | null;
 };
 
+/** Try authenticated user first; fall back to a guest row keyed by X-Guest-Id header. */
+export async function getUser(req: any): Promise<AuthedUser> {
+  // Try real auth first
+  const auth = String(req.header("authorization") || "");
+  if (auth.match(/^Bearer\s+.+$/i)) {
+    return requireUser(req);
+  }
+
+  // Guest mode: X-Guest-Id header carries a client-generated UUID
+  const guestId = String(req.header("x-guest-id") || "").trim().slice(0, 64);
+  if (!guestId) throw new Error("missing bearer token");
+
+  const id = `guest-${guestId}`;
+  const user = await db.user.upsert({
+    where:  { id },
+    update: {},
+    create: { id, name: "Guest" }
+  });
+  return { id: user.id, github: null, email: null, name: "Guest" };
+}
+
 export async function requireUser(req: any): Promise<AuthedUser> {
   const auth = String(req.header("authorization") || "");
   const m = auth.match(/^Bearer\s+(.+)$/i);

@@ -3,7 +3,7 @@ import { db } from "@bitcode/db/src/index.js";
 import { z } from "zod";
 import { CreateAttemptSchema, LogPromptEventSchema, SubmitAttemptSchema } from "@bitcode/shared";
 import { scoreAttemptHeuristic } from "@bitcode/shared";
-import { requireAdmin, requireUser } from "./auth.js";
+import { requireAdmin, requireUser, getUser } from "./auth.js";
 import { RunStore } from "./runStore.js";
 import { nanoid } from "nanoid";
 import { spawn } from "node:child_process";
@@ -64,7 +64,7 @@ apiRouter.get("/me", async (req, res) => {
 apiRouter.post("/attempts", async (req, res) => {
   const parsed = CreateAttemptSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
-  const user = await requireUser(req).catch((e) => ({ error: String(e?.message || e) } as any));
+  const user = await getUser(req).catch((e) => ({ error: String(e?.message || e) } as any));
   if ((user as any).error) return res.status(401).json({ ok: false, error: (user as any).error });
   const attempt = await db.attempt.create({
     data: {
@@ -79,7 +79,7 @@ apiRouter.post("/attempts", async (req, res) => {
 apiRouter.post("/attempts/events", async (req, res) => {
   const parsed = LogPromptEventSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
-  const user = await requireUser(req).catch((e) => ({ error: String(e?.message || e) } as any));
+  const user = await getUser(req).catch((e) => ({ error: String(e?.message || e) } as any));
   if ((user as any).error) return res.status(401).json({ ok: false, error: (user as any).error });
 
   const attempt = await db.attempt.findFirst({ where: { id: parsed.data.attemptId, userId: (user as any).id } });
@@ -100,7 +100,7 @@ apiRouter.post("/attempts/events", async (req, res) => {
 apiRouter.post("/attempts/submit", async (req, res) => {
   const parsed = SubmitAttemptSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
-  const user = await requireUser(req).catch((e) => ({ error: String(e?.message || e) } as any));
+  const user = await getUser(req).catch((e) => ({ error: String(e?.message || e) } as any));
   if ((user as any).error) return res.status(401).json({ ok: false, error: (user as any).error });
 
   const attempt = await db.attempt.findFirst({ where: { id: parsed.data.attemptId, userId: (user as any).id } });
@@ -123,7 +123,7 @@ apiRouter.post("/attempts/submit", async (req, res) => {
 // SSE: stream evaluation for an attempt.
 apiRouter.get("/attempts/:attemptId/evaluate/stream", async (req, res) => {
   const attemptId = String(req.params.attemptId || "");
-  const user = await requireUser(req).catch((e) => ({ error: String(e?.message || e) } as any));
+  const user = await getUser(req).catch((e) => ({ error: String(e?.message || e) } as any));
   if ((user as any).error) return res.status(401).json({ ok: false, error: (user as any).error });
 
   const attempt = await db.attempt.findFirst({ where: { id: attemptId, userId: (user as any).id }, include: { events: true } });

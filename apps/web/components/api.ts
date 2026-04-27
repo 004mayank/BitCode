@@ -1,17 +1,32 @@
 export const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000";
 
+/** Returns a stable guest UUID from localStorage (created once per browser). */
+function guestId(): string {
+  if (typeof window === "undefined") return "";
+  try {
+    const key = "bc-guest-id";
+    let id = localStorage.getItem(key);
+    if (!id) {
+      id = crypto.randomUUID();
+      localStorage.setItem(key, id);
+    }
+    return id;
+  } catch { return ""; }
+}
+
 async function getAuthHeader(): Promise<Record<string, string>> {
-  // MVP: use NextAuth session endpoint.
-  // NOTE: NextAuth does not return a bearer token by default.
-  // We instead mint a short-lived API token via our own endpoint.
+  // Try NextAuth token first
   try {
     const r = await fetch("/api/api-token", { cache: "no-store" });
-    if (!r.ok) return {};
-    const j = await r.json().catch(() => null);
-    const token = (j as any)?.token;
-    if (token) return { Authorization: `Bearer ${token}` };
+    if (r.ok) {
+      const j = await r.json().catch(() => null);
+      const token = (j as any)?.token;
+      if (token) return { Authorization: `Bearer ${token}` };
+    }
   } catch {}
-  return {};
+  // Fall back to guest session header
+  const id = guestId();
+  return id ? { "X-Guest-Id": id } : {};
 }
 
 export async function apiGet<T>(path: string): Promise<T> {
