@@ -2,7 +2,6 @@
 
 import { usePathname } from "next/navigation";
 import Link from "next/link";
-import Image from "next/image";
 import { useEffect, useState } from "react";
 
 const NAV = [
@@ -21,17 +20,14 @@ function useEffectiveTheme() {
       const t = document.documentElement.dataset.theme || "dark";
       if (t === "light") return setIsDark(false);
       if (t === "dark")  return setIsDark(true);
-      // system
       setIsDark(!window.matchMedia("(prefers-color-scheme: light)").matches);
     }
 
     compute();
 
-    // Watch for data-theme attribute changes (ThemeToggle writes this)
     const observer = new MutationObserver(compute);
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 
-    // Watch for OS preference changes (system mode)
     const mq = window.matchMedia("(prefers-color-scheme: light)");
     mq.addEventListener("change", compute);
 
@@ -39,6 +35,103 @@ function useEffectiveTheme() {
   }, []);
 
   return isDark;
+}
+
+/**
+ * Pixel-art "BitCode" logo — inlined SVG so there's zero caching/optimization
+ * between the source and what the browser renders.
+ *
+ * Grid: px=5, 5-col × 7-row per character, y_start=8
+ * "Bit" colour toggles white ↔ near-black with theme.
+ * "Code" is always purple.
+ */
+function BitCodeLogo({ isDark }: { isDark: boolean }) {
+  const bit = isDark ? "#ffffff" : "#111111";
+  const code = isDark ? "#8A5CFF" : "#6C3BFF";
+  const p = 5; // pixel size
+
+  // Helper: render one pixel square
+  const px = (x: number, y: number, fill: string) => (
+    <rect key={`${x}-${y}`} x={x} y={y} width={p} height={p} fill={fill} />
+  );
+
+  // Character pixel maps — [col, row][] for each lit pixel
+  const B: [number,number][] = [
+    [0,0],[1,0],[2,0],[3,0],
+    [0,1],[4,1],
+    [0,2],[4,2],
+    [0,3],[1,3],[2,3],[3,3],
+    [0,4],[4,4],
+    [0,5],[4,5],
+    [0,6],[1,6],[2,6],[3,6],
+  ];
+  const I: [number,number][] = [
+    [0,0],[1,0],[2,0],
+    [1,1],[1,2],[1,3],[1,4],[1,5],
+    [0,6],[1,6],[2,6],
+  ];
+  const T: [number,number][] = [
+    [1,0],[1,1],
+    [0,2],[1,2],[2,2],[3,2],
+    [1,3],[1,4],[1,5],[1,6],
+  ];
+  const C: [number,number][] = [
+    [1,0],[2,0],[3,0],[4,0],
+    [0,1],[0,2],[0,3],[0,4],[0,5],
+    [1,6],[2,6],[3,6],[4,6],
+  ];
+  const O: [number,number][] = [
+    [1,0],[2,0],[3,0],
+    [0,1],[4,1],[0,2],[4,2],[0,3],[4,3],[0,4],[4,4],[0,5],[4,5],
+    [1,6],[2,6],[3,6],
+  ];
+  const D: [number,number][] = [
+    [4,0],[4,1],
+    [1,2],[2,2],[3,2],[4,2],
+    [0,3],[4,3],[0,4],[4,4],[0,5],[4,5],
+    [1,6],[2,6],[3,6],[4,6],
+  ];
+  const E: [number,number][] = [
+    [1,0],[2,0],[3,0],
+    [0,1],[4,1],[0,2],[4,2],
+    [0,3],[1,3],[2,3],[3,3],[4,3],
+    [0,4],[0,5],
+    [1,6],[2,6],[3,6],[4,6],
+  ];
+
+  // x offsets for each character (px=5 per column, gaps between chars)
+  const xB = 6;
+  const xI = xB + 5*p + 4;   // 35
+  const xT = xI + 3*p + 4;   // 54
+  const xC = xT + 4*p + 10;  // 84
+  const xO = xC + 5*p + 4;   // 113
+  const xD = xO + 5*p + 4;   // 142
+  const xE = xD + 5*p + 4;   // 171
+
+  const yStart = 8;
+
+  const renderChar = (pixels: [number,number][], xOff: number, fill: string) =>
+    pixels.map(([col, row]) => px(xOff + col * p, yStart + row * p, fill));
+
+  return (
+    <svg
+      viewBox="0 0 200 50"
+      width="200"
+      height="50"
+      xmlns="http://www.w3.org/2000/svg"
+      shapeRendering="crispEdges"
+      style={{ width: "100%", height: "auto", display: "block" }}
+      aria-label="BitCode"
+    >
+      {renderChar(B, xB, bit)}
+      {renderChar(I, xI, bit)}
+      {renderChar(T, xT, bit)}
+      {renderChar(C, xC, code)}
+      {renderChar(O, xO, code)}
+      {renderChar(D, xD, code)}
+      {renderChar(E, xE, code)}
+    </svg>
+  );
 }
 
 export function SidebarNav() {
@@ -55,15 +148,7 @@ export function SidebarNav() {
       {/* Logo */}
       <div style={{ padding: "14px 14px 10px" }}>
         <Link href="/" style={{ textDecoration: "none", display: "block" }}>
-          <Image
-            src={isDark ? "/bitcode-dark.svg?v=3" : "/bitcode-light.svg?v=3"}
-            alt="BitCode"
-            width={200}
-            height={50}
-            style={{ width: "100%", height: "auto", display: "block" }}
-            priority
-            unoptimized
-          />
+          <BitCodeLogo isDark={isDark} />
         </Link>
       </div>
 
