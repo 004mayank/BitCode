@@ -56,7 +56,7 @@ export function SidebarNav() {
       <div style={{ padding: "14px 14px 10px" }}>
         <Link href="/" style={{ textDecoration: "none", display: "block" }}>
           <Image
-            src={isDark ? "/bitcode-dark.svg" : "/bitcode-light.svg"}
+            src={isDark ? "/bitcode-dark.svg?v=3" : "/bitcode-light.svg?v=3"}
             alt="BitCode"
             width={200}
             height={50}
