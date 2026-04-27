@@ -58,10 +58,11 @@ export function SidebarNav() {
           <Image
             src={isDark ? "/bitcode-dark.svg" : "/bitcode-light.svg"}
             alt="BitCode"
-            width={180}
-            height={60}
+            width={200}
+            height={50}
             style={{ width: "100%", height: "auto", display: "block" }}
             priority
+            unoptimized
           />
         </Link>
       </div>
