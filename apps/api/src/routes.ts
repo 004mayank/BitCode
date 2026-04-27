@@ -10,6 +10,77 @@ import { spawn } from "node:child_process";
 
 export const apiRouter = Router();
 
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+function toDateStr(d: Date): string {
+  return d.toISOString().slice(0, 10); // "YYYY-MM-DD"
+}
+
+/** Compute daily activity counts for a user over the last N days from existing tables. */
+async function getUserActivity(userId: string, days = 365): Promise<Record<string, number>> {
+  const since = new Date();
+  since.setDate(since.getDate() - days);
+
+  const [attempts, events, submissions] = await Promise.all([
+    db.attempt.findMany({ where: { userId, createdAt: { gte: since } }, select: { createdAt: true } }),
+    db.promptEvent.findMany({
+      where: { attempt: { userId }, createdAt: { gte: since } },
+      select: { createdAt: true }
+    }),
+    db.submission.findMany({ where: { userId, createdAt: { gte: since } }, select: { createdAt: true } })
+  ]);
+
+  const map: Record<string, number> = {};
+  const add = (d: Date) => { const k = toDateStr(d); map[k] = (map[k] ?? 0) + 1; };
+  attempts.forEach(a => add(a.createdAt));
+  events.forEach(e => add(e.createdAt));
+  submissions.forEach(s => add(s.createdAt));
+  return map;
+}
+
+/** Given a date→count map, compute current streak, longest streak, and total active days. */
+function computeStreaks(activity: Record<string, number>): {
+  currentStreak: number; longestStreak: number; totalActiveDays: number; lastActiveDate: string | null;
+} {
+  const today = toDateStr(new Date());
+  const yesterday = toDateStr(new Date(Date.now() - 86400000));
+
+  const activeDays = Object.keys(activity).filter(d => activity[d] > 0).sort();
+  const totalActiveDays = activeDays.length;
+  if (totalActiveDays === 0) return { currentStreak: 0, longestStreak: 0, totalActiveDays: 0, lastActiveDate: null };
+
+  const lastActiveDate = activeDays[activeDays.length - 1];
+
+  // Current streak: count back from today (or yesterday if not active today)
+  let currentStreak = 0;
+  if (lastActiveDate === today || lastActiveDate === yesterday) {
+    let cursor = new Date(lastActiveDate + "T00:00:00Z");
+    while (true) {
+      const key = toDateStr(cursor);
+      if (!activity[key]) break;
+      currentStreak++;
+      cursor.setDate(cursor.getDate() - 1);
+    }
+  }
+
+  // Longest streak
+  let longestStreak = 0, run = 0;
+  let prev: Date | null = null;
+  for (const day of activeDays) {
+    const cur = new Date(day + "T00:00:00Z");
+    if (prev) {
+      const diff = Math.round((cur.getTime() - prev.getTime()) / 86400000);
+      run = diff === 1 ? run + 1 : 1;
+    } else {
+      run = 1;
+    }
+    longestStreak = Math.max(longestStreak, run);
+    prev = cur;
+  }
+
+  return { currentStreak, longestStreak, totalActiveDays, lastActiveDate };
+}
+
 async function recomputeUserStats(userId: string) {
   const [subsAgg, winsAgg, attemptsAgg] = await Promise.all([
     db.submission.aggregate({
@@ -33,17 +104,19 @@ async function recomputeUserStats(userId: string) {
   const submissionsCount = subsAgg._count._all;
 
   const avgAttemptScore = Math.round(Number(attemptsAgg._avg.scoreTotal || 0));
-  // Reputation v2: points + avg score weight + wins bonus.
   const reputationPts = Math.max(0, Math.round(bountyEarnedPts + avgAttemptScore * 2 + bountiesWon * 100));
-
   const avgSubmissionScore = Math.round(
     Number(subsAgg._avg.finalScoreTotal ?? subsAgg._avg.manualScoreTotal ?? subsAgg._avg.autoScoreTotal ?? 0)
   );
 
+  // Compute streaks from activity
+  const activity = await getUserActivity(userId, 365);
+  const { currentStreak, longestStreak, totalActiveDays, lastActiveDate } = computeStreaks(activity);
+
   await db.userStats.upsert({
     where: { userId },
-    update: { reputationPts, bountyEarnedPts, bountiesWon, submissionsCount, avgSubmissionScore },
-    create: { userId, reputationPts, bountyEarnedPts, bountiesWon, submissionsCount, avgSubmissionScore }
+    update: { reputationPts, bountyEarnedPts, bountiesWon, submissionsCount, avgSubmissionScore, currentStreak, longestStreak, totalActiveDays, lastActiveDate },
+    create: { userId, reputationPts, bountyEarnedPts, bountiesWon, submissionsCount, avgSubmissionScore, currentStreak, longestStreak, totalActiveDays, lastActiveDate }
   });
 }
 
@@ -61,6 +134,21 @@ apiRouter.get("/me", async (req, res) => {
   res.json({ ok: true, user, stats });
 });
 
+/** Returns daily activity counts for the last 365 days: { "2026-04-27": 5, ... } */
+apiRouter.get("/me/activity", async (req, res) => {
+  const user = await requireUser(req).catch((e) => ({ error: String(e?.message || e) } as any));
+  if ((user as any).error) return res.status(401).json({ ok: false, error: (user as any).error });
+  const activity = await getUserActivity((user as any).id, 365);
+  res.json({ ok: true, activity });
+});
+
+/** Public activity for any user by id (for viewing others' profiles) */
+apiRouter.get("/users/:userId/activity", async (req, res) => {
+  const { userId } = req.params;
+  const activity = await getUserActivity(userId, 365);
+  res.json({ ok: true, activity });
+});
+
 apiRouter.post("/attempts", async (req, res) => {
   const parsed = CreateAttemptSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
@@ -73,6 +161,8 @@ apiRouter.post("/attempts", async (req, res) => {
       status: "IN_PROGRESS"
     }
   });
+  // Update streak immediately when user starts working
+  recomputeUserStats((user as any).id).catch(() => {});
   res.json({ ok: true, attempt });
 });
 

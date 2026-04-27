@@ -339,5 +339,11 @@ model UserStats {
   submissionsCount Int @default(0)
   avgSubmissionScore Int @default(0)
 
+  // Streak tracking
+  currentStreak  Int     @default(0)
+  longestStreak  Int     @default(0)
+  lastActiveDate String? // ISO date string "YYYY-MM-DD"
+  totalActiveDays Int    @default(0)
+
   user User @relation(fields: [userId], references: [id])
 }
