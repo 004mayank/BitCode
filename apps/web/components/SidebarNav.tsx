@@ -2,6 +2,8 @@
 
 import { usePathname } from "next/navigation";
 import Link from "next/link";
+import Image from "next/image";
+import { useEffect, useState } from "react";
 
 const NAV = [
   { href: "/", label: "Dashboard", icon: "⊞" },
@@ -11,8 +13,37 @@ const NAV = [
   { href: "/profile", label: "Profile", icon: "◉" },
 ];
 
+function useEffectiveTheme() {
+  const [isDark, setIsDark] = useState(true);
+
+  useEffect(() => {
+    function compute() {
+      const t = document.documentElement.dataset.theme || "dark";
+      if (t === "light") return setIsDark(false);
+      if (t === "dark")  return setIsDark(true);
+      // system
+      setIsDark(!window.matchMedia("(prefers-color-scheme: light)").matches);
+    }
+
+    compute();
+
+    // Watch for data-theme attribute changes (ThemeToggle writes this)
+    const observer = new MutationObserver(compute);
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+
+    // Watch for OS preference changes (system mode)
+    const mq = window.matchMedia("(prefers-color-scheme: light)");
+    mq.addEventListener("change", compute);
+
+    return () => { observer.disconnect(); mq.removeEventListener("change", compute); };
+  }, []);
+
+  return isDark;
+}
+
 export function SidebarNav() {
   const path = usePathname();
+  const isDark = useEffectiveTheme();
 
   function isActive(href: string) {
     if (href === "/") return path === "/";
@@ -22,19 +53,17 @@ export function SidebarNav() {
   return (
     <nav className="sidebar">
       {/* Logo */}
-      <div style={{ padding: "20px 16px 16px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <div style={{
-            width: 32, height: 32, borderRadius: 8,
-            background: "linear-gradient(135deg, #3b82f6, #8b5cf6)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            fontSize: 16, fontWeight: 800, color: "#fff"
-          }}>B</div>
-          <div>
-            <div style={{ fontWeight: 800, fontSize: 15, lineHeight: 1.1 }}>BitCode</div>
-            <div style={{ fontSize: 10, color: "var(--text-3)", letterSpacing: "0.06em" }}>AI DEV PLATFORM</div>
-          </div>
-        </div>
+      <div style={{ padding: "16px 14px 12px" }}>
+        <Link href="/" style={{ textDecoration: "none", display: "block" }}>
+          <Image
+            src={isDark ? "/bitcode-dark.svg" : "/bitcode-light.svg"}
+            alt="BitCode"
+            width={160}
+            height={160}
+            style={{ width: "100%", height: "auto", display: "block", borderRadius: 10 }}
+            priority
+          />
+        </Link>
       </div>
 
       <hr className="divider" style={{ margin: "0 0 8px" }} />

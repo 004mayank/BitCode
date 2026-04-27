@@ -1,0 +1,23 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <rect width="512" height="512" fill="#0a0a0a"/>
+
+  <!-- Laptop -->
+  <rect x="106" y="90" width="300" height="180" fill="#3a3a3a" stroke="#888" stroke-width="4"/>
+  <rect x="130" y="115" width="252" height="130" fill="#111133"/>
+
+  <!-- Code symbols -->
+  <text x="256" y="195" text-anchor="middle" font-family="monospace" font-size="48" fill="#7CFF6B">
+    &lt;/&gt;
+  </text>
+
+  <!-- Base -->
+  <rect x="90" y="270" width="332" height="40" fill="#444"/>
+
+  <!-- Text -->
+  <text x="256" y="380" text-anchor="middle" font-family="monospace" font-size="64" fill="#ffffff">
+    Bit
+  </text>
+  <text x="320" y="380" font-family="monospace" font-size="64" fill="#8A5CFF">
+    Code
+  </text>
+</svg>
