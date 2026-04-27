@@ -1,31 +1,46 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { apiGet, apiPost, API_BASE } from "./api";
 import dynamic from "next/dynamic";
 
 const MonacoEditor = dynamic(() => import("@monaco-editor/react"), { ssr: false });
 
-type Challenge = {
-  id: string;
-  title: string;
-  description: string;
-  prompt: string;
-  tags: string[];
-  difficulty: number;
-  rubric?: any;
+// ── Language registry ────────────────────────────────────────────────────────
+
+type Lang = {
+  id: string;          // Monaco language id
+  label: string;
+  icon: string;
+  ext: string;         // default filename extension
+  runnable: boolean;   // supported by docker runner
+  starter: string;
 };
 
-type Attempt = { id: string; challengeId: string; status: string; submissionUrl?: string | null };
+const LANGUAGES: Lang[] = [
+  { id: "python",      label: "Python",     icon: "🐍", ext: "py",   runnable: true,  starter: "# Python\n\nprint('Hello, BitCode!')\n" },
+  { id: "javascript",  label: "JavaScript", icon: "🟨", ext: "js",   runnable: false, starter: "// JavaScript\n\nconsole.log('Hello, BitCode!');\n" },
+  { id: "typescript",  label: "TypeScript", icon: "🔷", ext: "ts",   runnable: false, starter: "// TypeScript\n\nconst greet = (name: string): string => `Hello, ${name}!`;\nconsole.log(greet('BitCode'));\n" },
+  { id: "go",          label: "Go",         icon: "🐹", ext: "go",   runnable: false, starter: "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tfmt.Println(\"Hello, BitCode!\")\n}\n" },
+  { id: "rust",        label: "Rust",       icon: "🦀", ext: "rs",   runnable: false, starter: "fn main() {\n    println!(\"Hello, BitCode!\");\n}\n" },
+  { id: "java",        label: "Java",       icon: "☕", ext: "java", runnable: false, starter: "public class Main {\n    public static void main(String[] args) {\n        System.out.println(\"Hello, BitCode!\");\n    }\n}\n" },
+  { id: "cpp",         label: "C++",        icon: "⚙️", ext: "cpp",  runnable: false, starter: "#include <iostream>\n\nint main() {\n    std::cout << \"Hello, BitCode!\" << std::endl;\n    return 0;\n}\n" },
+  { id: "csharp",      label: "C#",         icon: "🔵", ext: "cs",   runnable: false, starter: "using System;\n\nclass Program {\n    static void Main() {\n        Console.WriteLine(\"Hello, BitCode!\");\n    }\n}\n" },
+  { id: "ruby",        label: "Ruby",       icon: "💎", ext: "rb",   runnable: false, starter: "# Ruby\n\nputs 'Hello, BitCode!'\n" },
+  { id: "php",         label: "PHP",        icon: "🐘", ext: "php",  runnable: false, starter: "<?php\n\necho 'Hello, BitCode!';\n" },
+  { id: "shell",       label: "Bash",       icon: "🖥",  ext: "sh",   runnable: false, starter: "#!/bin/bash\n\necho \"Hello, BitCode!\"\n" },
+  { id: "sql",         label: "SQL",        icon: "🗄",  ext: "sql",  runnable: false, starter: "-- SQL\n\nSELECT 'Hello, BitCode!' AS greeting;\n" },
+];
 
-type ScoreBreakdown = {
-  promptQuality: number;
-  iterationIntelligence: number;
-  efficiency: number;
-  correctnessProxy: number;
-  total: number;
-  notes: string[];
-};
+const DEFAULT_LANG = LANGUAGES[0];
+
+// ── Types ────────────────────────────────────────────────────────────────────
+
+type Challenge = { id: string; title: string; description: string; prompt: string; tags: string[]; difficulty: number; rubric?: any };
+type Attempt   = { id: string; challengeId: string; status: string; submissionUrl?: string | null };
+type ScoreBreakdown = { promptQuality: number; iterationIntelligence: number; efficiency: number; correctnessProxy: number; total: number; notes: string[] };
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
 function scoreColor(n: number) {
   if (n >= 75) return "var(--green)";
@@ -34,77 +49,96 @@ function scoreColor(n: number) {
 }
 
 function ScoreBar({ label, value }: { label: string; value: number }) {
-  const color = scoreColor(value);
+  const c = scoreColor(value);
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
       <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
         <span style={{ color: "var(--text-2)" }}>{label}</span>
-        <span style={{ fontWeight: 700, color }}>{value}</span>
+        <span style={{ fontWeight: 700, color: c }}>{value}</span>
       </div>
       <div className="progress-track">
-        <div className="progress-fill" style={{ width: `${value}%`, background: color }} />
+        <div className="progress-fill" style={{ width: `${value}%`, background: c }} />
       </div>
     </div>
   );
 }
 
 function ScorePanel({ score }: { score: ScoreBreakdown }) {
-  const color = scoreColor(score.total);
+  const c = scoreColor(score.total);
+  const r = 38, circ = 2 * Math.PI * r, filled = (score.total / 100) * circ;
   return (
-    <div className="card" style={{ padding: 18, border: `1px solid ${color}40` }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 16 }}>
-        <div style={{
-          width: 64, height: 64, borderRadius: "50%",
-          border: `3px solid ${color}`,
-          display: "flex", alignItems: "center", justifyContent: "center",
-          flexShrink: 0
-        }}>
-          <div style={{ fontSize: 24, fontWeight: 900, color }}>{score.total}</div>
-        </div>
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+        <svg width={96} height={96} viewBox="0 0 96 96" style={{ flexShrink: 0 }}>
+          <circle cx={48} cy={48} r={r} fill="none" stroke="var(--border)" strokeWidth={6} />
+          <circle cx={48} cy={48} r={r} fill="none" stroke={c} strokeWidth={6}
+            strokeDasharray={`${filled} ${circ - filled}`}
+            strokeLinecap="round" transform="rotate(-90 48 48)" />
+          <text x={48} y={53} textAnchor="middle" fill={c} fontSize={20} fontWeight={800}>{score.total}</text>
+        </svg>
         <div>
-          <div style={{ fontWeight: 800, fontSize: 15 }}>AI Skill Score</div>
-          <div style={{ color: "var(--text-2)", fontSize: 12, marginTop: 2 }}>
-            {score.total >= 75 ? "Great AI workflow" : score.total >= 50 ? "Solid attempt" : "Needs improvement"}
+          <div style={{ fontWeight: 800, fontSize: 16 }}>AI Skill Score</div>
+          <div style={{ color: "var(--text-2)", fontSize: 13, marginTop: 2 }}>
+            {score.total >= 75 ? "🏆 Great AI workflow" : score.total >= 50 ? "👍 Solid attempt" : "📈 Needs improvement"}
           </div>
         </div>
       </div>
-
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         <ScoreBar label="Prompt Quality" value={score.promptQuality} />
         <ScoreBar label="Iteration Intelligence" value={score.iterationIntelligence} />
         <ScoreBar label="Efficiency" value={score.efficiency} />
         <ScoreBar label="Correctness Proxy" value={score.correctnessProxy} />
       </div>
-
       {score.notes.length > 0 && (
-        <div style={{ marginTop: 14, padding: 10, borderRadius: 8, background: "rgba(245,158,11,0.07)", border: "1px solid rgba(245,158,11,0.2)" }}>
-          {score.notes.map((n, i) => (
-            <div key={i} style={{ fontSize: 12, color: "var(--yellow)", lineHeight: 1.5 }}>⚠ {n}</div>
-          ))}
+        <div style={{ padding: 10, borderRadius: 8, background: "var(--yellow-dim)", border: "1px solid rgba(245,158,11,0.2)" }}>
+          {score.notes.map((n, i) => <div key={i} style={{ fontSize: 12, color: "var(--yellow)" }}>⚠ {n}</div>)}
         </div>
       )}
     </div>
   );
 }
 
+// ── Language selector ─────────────────────────────────────────────────────────
+
+function LangSelector({ selected, onChange }: { selected: Lang; onChange: (l: Lang) => void }) {
+  return (
+    <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
+      {LANGUAGES.map((l) => (
+        <button
+          key={l.id}
+          className={`lang-btn${selected.id === l.id ? " active" : ""}`}
+          onClick={() => onChange(l)}
+          title={l.label}
+        >
+          <span>{l.icon}</span>{l.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
+
 export function ChallengeAttempt({ challengeId }: { challengeId: string }) {
-  const [challenge, setChallenge] = useState<Challenge | null>(null);
-  const [attempt, setAttempt] = useState<Attempt | null>(null);
-  const [submissionUrl, setSubmissionUrl] = useState("");
-  const [workflowNote, setWorkflowNote] = useState("");
-  const [loggedEvents, setLoggedEvents] = useState<{ type: string; text: string }[]>([]);
+  const [challenge, setChallenge]     = useState<Challenge | null>(null);
+  const [attempt, setAttempt]         = useState<Attempt | null>(null);
+  const [submissionUrl, setUrl]       = useState("");
+  const [workflowNote, setNote]       = useState("");
+  const [loggedEvents, setEvents]     = useState<{ type: string; text: string }[]>([]);
 
-  const [code, setCode] = useState("# Write your solution here\n\nprint('hello bitcode')\n");
-  const [runId, setRunId] = useState<string | null>(null);
-  const [runLogs, setRunLogs] = useState<string[]>([]);
-  const [runResult, setRunResult] = useState<any | null>(null);
+  const [lang, setLang]               = useState<Lang>(DEFAULT_LANG);
+  const [code, setCode]               = useState(DEFAULT_LANG.starter);
 
-  const [score, setScore] = useState<ScoreBreakdown | null>(null);
-  const [evalLogs, setEvalLogs] = useState<string[]>([]);
-  const [evaluating, setEvaluating] = useState(false);
+  const [runId, setRunId]             = useState<string | null>(null);
+  const [runLogs, setRunLogs]         = useState<string[]>([]);
+  const [runResult, setRunResult]     = useState<any | null>(null);
 
-  const [err, setErr] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"editor" | "workflow" | "score">("editor");
+  const [score, setScore]             = useState<ScoreBreakdown | null>(null);
+  const [evalLogs, setEvalLogs]       = useState<string[]>([]);
+  const [evaluating, setEvaluating]   = useState(false);
+
+  const [err, setErr]                 = useState<string | null>(null);
+  const [activeTab, setActiveTab]     = useState<"editor" | "workflow" | "score">("editor");
 
   const esRef = useRef<EventSource | null>(null);
 
@@ -115,25 +149,26 @@ export function ChallengeAttempt({ challengeId }: { challengeId: string }) {
       .catch((e) => setErr(String(e?.message || e)));
   }, [challengeId]);
 
+  function switchLang(l: Lang) {
+    setLang(l);
+    setCode(l.starter);
+  }
+
   async function startAttempt() {
     setErr(null);
     try {
       const j = await apiPost<{ ok: true; attempt: Attempt }>("/api/attempts", { challengeId });
       setAttempt(j.attempt);
-    } catch (e: any) {
-      setErr(String(e?.message || e));
-    }
+    } catch (e: any) { setErr(String(e?.message || e)); }
   }
 
   async function logWorkflow(type: "prompt" | "iteration" | "note") {
     if (!attempt || !workflowNote.trim()) return;
     try {
       await apiPost("/api/attempts/events", { attemptId: attempt.id, type, text: workflowNote.trim() });
-      setLoggedEvents((ev) => [...ev, { type, text: workflowNote.trim() }]);
-      setWorkflowNote("");
-    } catch (e: any) {
-      setErr(String(e?.message || e));
-    }
+      setEvents((ev) => [...ev, { type, text: workflowNote.trim() }]);
+      setNote("");
+    } catch (e: any) { setErr(String(e?.message || e)); }
   }
 
   async function submit() {
@@ -141,133 +176,107 @@ export function ChallengeAttempt({ challengeId }: { challengeId: string }) {
     try {
       await apiPost("/api/attempts/submit", { attemptId: attempt.id, submissionUrl });
       setAttempt({ ...attempt, status: "SUBMITTED", submissionUrl });
-    } catch (e: any) {
-      setErr(String(e?.message || e));
-    }
+    } catch (e: any) { setErr(String(e?.message || e)); }
   }
 
   async function evaluate() {
     if (!attempt) return;
-    setEvaluating(true);
-    setScore(null);
-    setEvalLogs([]);
-    setActiveTab("score");
-
+    setEvaluating(true); setScore(null); setEvalLogs([]); setActiveTab("score");
     const token = await getToken();
-    const url = `${API_BASE}/api/attempts/${attempt.id}/evaluate/stream`;
-    const headers: Record<string, string> = {};
-    if (token) headers["Authorization"] = `Bearer ${token}`;
-
     try {
-      const resp = await fetch(url, { headers });
+      const resp = await fetch(`${API_BASE}/api/attempts/${attempt.id}/evaluate/stream`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {}
+      });
       const reader = resp.body?.getReader();
       const dec = new TextDecoder();
-      let buf = "";
-
+      let buf = "", event = "";
       while (reader) {
         const { done, value } = await reader.read();
         if (done) break;
         buf += dec.decode(value, { stream: true });
         const lines = buf.split("\n");
         buf = lines.pop() ?? "";
-        let event = "";
         for (const line of lines) {
           if (line.startsWith("event: ")) event = line.slice(7).trim();
           else if (line.startsWith("data: ")) {
             const data = JSON.parse(line.slice(6));
-            if (event === "log") setEvalLogs((l) => [...l, data.message]);
+            if (event === "log")  setEvalLogs((l) => [...l, data.message]);
             if (event === "score") setScore(data);
-            if (event === "done") {
-              setAttempt((a) => (a ? { ...a, status: "EVALUATED" } : a));
-            }
+            if (event === "done") setAttempt((a) => a ? { ...a, status: "EVALUATED" } : a);
           }
         }
       }
-    } catch (e: any) {
-      setErr(String(e?.message || e));
-    } finally {
-      setEvaluating(false);
-    }
-  }
-
-  async function getToken(): Promise<string | null> {
-    try {
-      const r = await fetch("/api/api-token", { cache: "no-store" });
-      const j = await r.json();
-      return j?.token ?? null;
-    } catch { return null; }
+    } catch (e: any) { setErr(String(e?.message || e)); }
+    finally { setEvaluating(false); }
   }
 
   async function runCode() {
-    setErr(null);
-    setRunLogs([]);
-    setRunResult(null);
+    if (!lang.runnable) return;
+    setErr(null); setRunLogs([]); setRunResult(null);
     try {
       const j = await apiPost<{ ok: true; runId: string }>("/api/run", {
-        language: "python",
-        entry: "main.py",
-        timeoutMs: 10000,
-        files: [{ path: "main.py", content: code }]
+        language: "python", entry: `main.${lang.ext}`,
+        timeoutMs: 10000, files: [{ path: `main.${lang.ext}`, content: code }]
       });
       setRunId(j.runId);
-
       esRef.current?.close();
       const es = new EventSource(`${API_BASE}/api/run/${j.runId}/stream`);
       esRef.current = es;
-      es.addEventListener("log", (ev: any) => {
-        const d = JSON.parse(ev.data);
-        setRunLogs((l) => [...l, d.line]);
-      });
-      es.addEventListener("done", (ev: any) => {
-        const d = JSON.parse(ev.data);
-        setRunResult(d);
-        es.close();
-      });
-      es.onerror = () => {
-        setRunLogs((l) => [...l, "[SSE error]"]);
-        es.close();
-      };
-    } catch (e: any) {
-      setErr(String(e?.message || e));
-    }
+      es.addEventListener("log",  (ev: any) => { const d = JSON.parse(ev.data); setRunLogs((l) => [...l, d.line]); });
+      es.addEventListener("done", (ev: any) => { setRunResult(JSON.parse(ev.data)); es.close(); });
+      es.onerror = () => { setRunLogs((l) => [...l, "[SSE error]"]); es.close(); };
+    } catch (e: any) { setErr(String(e?.message || e)); }
   }
 
   useEffect(() => () => { esRef.current?.close(); }, []);
 
-  const diffLabel = ["", "Easy", "Easy+", "Medium", "Hard", "Expert"][challenge?.difficulty ?? 0] ?? "";
-  const diffColor = [, "var(--green)", "var(--green)", "var(--yellow)", "var(--red)", "var(--purple)"][challenge?.difficulty ?? 0] ?? "var(--text-3)";
+  async function getToken() {
+    try { const r = await fetch("/api/api-token", { cache: "no-store" }); return (await r.json())?.token ?? null; }
+    catch { return null; }
+  }
+
+  const diffColors = ["", "var(--green)", "var(--green)", "var(--yellow)", "var(--red)", "var(--purple)"];
+  const diffLabels = ["", "Easy", "Easy+", "Medium", "Hard", "Expert"];
+  const d = challenge?.difficulty ?? 0;
+  const diffColor = diffColors[d] ?? "var(--text-3)";
+  const diffLabel = diffLabels[d] ?? "";
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "380px 1fr", gap: 14, height: "calc(100vh - 80px)" }}>
+    <div style={{ display: "grid", gridTemplateColumns: "380px 1fr", gap: 14, height: "calc(100vh - 110px)" }}>
 
-      {/* ── Left panel: problem + workflow ── */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 12, overflow: "auto" }}>
-        {/* Problem card */}
-        <div className="card" style={{ padding: 18 }}>
+      {/* ── Left: problem + workflow ── */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 10, overflowY: "auto", paddingRight: 2 }}>
+
+        {/* Problem */}
+        <div className="card" style={{ padding: 18, flexShrink: 0 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
             <div style={{ fontWeight: 800, fontSize: 17, lineHeight: 1.3 }}>{challenge?.title ?? "Loading…"}</div>
-            <span style={{ fontSize: 12, fontWeight: 600, color: diffColor, background: `${diffColor}18`, padding: "3px 8px", borderRadius: 999, border: `1px solid ${diffColor}40`, whiteSpace: "nowrap" }}>{diffLabel}</span>
+            {diffLabel && (
+              <span style={{ fontSize: 12, fontWeight: 600, color: diffColor, background: `${diffColor}18`, padding: "3px 8px", borderRadius: 999, border: `1px solid ${diffColor}40`, whiteSpace: "nowrap" }}>
+                {diffLabel}
+              </span>
+            )}
           </div>
           <div style={{ color: "var(--text-2)", marginTop: 6, fontSize: 13 }}>{challenge?.description}</div>
 
           <div style={{ marginTop: 14, padding: 14, borderRadius: 10, border: "1px solid var(--border)", background: "var(--bg)" }}>
-            <div style={{ fontWeight: 700, fontSize: 12, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--text-3)", marginBottom: 8 }}>Problem Statement</div>
+            <div style={{ fontWeight: 700, fontSize: 11, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--text-3)", marginBottom: 8 }}>Problem Statement</div>
             <div style={{ whiteSpace: "pre-wrap", color: "var(--text-1)", lineHeight: 1.7, fontSize: 13 }}>{challenge?.prompt}</div>
           </div>
 
           {challenge?.rubric && (
             <div style={{ marginTop: 12, padding: 12, borderRadius: 10, border: "1px solid rgba(139,92,246,0.2)", background: "rgba(139,92,246,0.05)" }}>
-              <div style={{ fontWeight: 700, fontSize: 12, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--purple)", marginBottom: 8 }}>Rubric</div>
+              <div style={{ fontWeight: 700, fontSize: 11, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--purple)", marginBottom: 8 }}>Rubric</div>
               {Object.entries(challenge.rubric).map(([k, v]: any) => (
-                <div key={k} style={{ marginBottom: 6 }}>
-                  <span style={{ fontWeight: 600, fontSize: 12, color: "var(--text-2)", textTransform: "capitalize" }}>{k}:</span>
-                  <span style={{ fontSize: 12, color: "var(--text-2)", marginLeft: 6 }}>{v}</span>
+                <div key={k} style={{ marginBottom: 5, fontSize: 12 }}>
+                  <span style={{ fontWeight: 600, color: "var(--text-2)", textTransform: "capitalize" }}>{k}: </span>
+                  <span style={{ color: "var(--text-2)" }}>{v}</span>
                 </div>
               ))}
             </div>
           )}
 
-          <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+          <div style={{ display: "flex", gap: 8, marginTop: 14, alignItems: "center" }}>
             {!attempt ? (
               <button className="btn" onClick={startAttempt}>Start Attempt</button>
             ) : (
@@ -280,28 +289,22 @@ export function ChallengeAttempt({ challengeId }: { challengeId: string }) {
           </div>
         </div>
 
-        {/* Workflow log card */}
-        <div className="card" style={{ padding: 18 }}>
-          <div style={{ fontWeight: 700, marginBottom: 10, fontSize: 13, letterSpacing: "0.04em", textTransform: "uppercase", color: "var(--text-3)" }}>Workflow Log</div>
-          <textarea
-            className="textarea"
-            rows={5}
+        {/* Workflow log */}
+        <div className="card" style={{ padding: 18, flexShrink: 0 }}>
+          <div style={{ fontWeight: 700, marginBottom: 10, fontSize: 11, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--text-3)" }}>Workflow Log</div>
+          <textarea className="textarea" rows={4}
             placeholder="Paste your AI prompt, note an iteration, or describe your debugging step…"
-            value={workflowNote}
-            onChange={(e) => setWorkflowNote(e.target.value)}
-            disabled={!attempt}
-          />
-          <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+            value={workflowNote} onChange={(e) => setNote(e.target.value)} disabled={!attempt} />
+          <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
             <button className="btn sm" disabled={!attempt || !workflowNote.trim()} onClick={() => logWorkflow("prompt")}>Log Prompt</button>
-            <button className="btn sm secondary" disabled={!attempt || !workflowNote.trim()} onClick={() => logWorkflow("iteration")}>Log Iteration</button>
-            <button className="btn sm secondary" disabled={!attempt || !workflowNote.trim()} onClick={() => logWorkflow("note")}>Log Note</button>
+            <button className="btn sm secondary" disabled={!attempt || !workflowNote.trim()} onClick={() => logWorkflow("iteration")}>Iteration</button>
+            <button className="btn sm secondary" disabled={!attempt || !workflowNote.trim()} onClick={() => logWorkflow("note")}>Note</button>
           </div>
-
           {loggedEvents.length > 0 && (
-            <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 6, maxHeight: 140, overflowY: "auto" }}>
+            <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 4, maxHeight: 120, overflowY: "auto" }}>
               {loggedEvents.map((ev, i) => (
-                <div key={i} style={{ display: "flex", gap: 8, fontSize: 12, background: "var(--bg)", padding: "6px 10px", borderRadius: 8, border: "1px solid var(--border)" }}>
-                  <span style={{ color: ev.type === "prompt" ? "var(--blue)" : ev.type === "iteration" ? "var(--green)" : "var(--text-3)", fontWeight: 600, textTransform: "uppercase", fontSize: 10, letterSpacing: "0.06em", minWidth: 54 }}>{ev.type}</span>
+                <div key={i} style={{ display: "flex", gap: 8, fontSize: 11, background: "var(--bg)", padding: "5px 9px", borderRadius: 6, border: "1px solid var(--border)" }}>
+                  <span style={{ color: ev.type === "prompt" ? "var(--blue)" : ev.type === "iteration" ? "var(--green)" : "var(--text-3)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", minWidth: 50 }}>{ev.type}</span>
                   <span style={{ color: "var(--text-2)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ev.text}</span>
                 </div>
               ))}
@@ -309,62 +312,62 @@ export function ChallengeAttempt({ challengeId }: { challengeId: string }) {
           )}
         </div>
 
-        {/* Submit card */}
-        <div className="card" style={{ padding: 18 }}>
-          <div style={{ fontWeight: 700, marginBottom: 10, fontSize: 13, letterSpacing: "0.04em", textTransform: "uppercase", color: "var(--text-3)" }}>Submit</div>
-          <input
-            className="input"
-            placeholder="GitHub repo or PR URL (optional)"
-            value={submissionUrl}
-            onChange={(e) => setSubmissionUrl(e.target.value)}
-            disabled={!attempt}
-          />
+        {/* Submit */}
+        <div className="card" style={{ padding: 18, flexShrink: 0 }}>
+          <div style={{ fontWeight: 700, marginBottom: 10, fontSize: 11, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--text-3)" }}>Submit</div>
+          <input className="input" placeholder="GitHub repo or PR URL (optional)" value={submissionUrl} onChange={(e) => setUrl(e.target.value)} disabled={!attempt} />
           <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
-            <button
-              className="btn"
-              disabled={!attempt || attempt.status === "EVALUATED"}
-              onClick={submit}
-            >
-              Submit
-            </button>
-            <button
-              className="btn secondary"
-              disabled={!attempt || evaluating}
-              onClick={evaluate}
-            >
-              {evaluating ? "Evaluating…" : "Get AI Score"}
-            </button>
+            <button className="btn" disabled={!attempt || attempt.status === "EVALUATED"} onClick={submit}>Submit</button>
+            <button className="btn secondary" disabled={!attempt || evaluating} onClick={evaluate}>{evaluating ? "Evaluating…" : "Get AI Score"}</button>
           </div>
-          {err ? <div style={{ color: "var(--red)", marginTop: 10, fontSize: 13 }}>{err}</div> : null}
+          {err && <div style={{ color: "var(--red)", marginTop: 8, fontSize: 12 }}>{err}</div>}
         </div>
       </div>
 
-      {/* ── Right panel: editor / score ── */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 10, overflow: "hidden" }}>
+      {/* ── Right: editor / score ── */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 10, overflow: "hidden", minHeight: 0 }}>
+
+        {/* Language selector bar */}
+        <div className="card" style={{ padding: "10px 14px", flexShrink: 0 }}>
+          <div style={{ marginBottom: 8 }}>
+            <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-3)", marginRight: 10 }}>Language</span>
+            {!lang.runnable && (
+              <span style={{ fontSize: 11, color: "var(--yellow)", background: "var(--yellow-dim)", padding: "1px 7px", borderRadius: 999, border: "1px solid rgba(245,158,11,0.25)" }}>
+                Execution: Python only for now
+              </span>
+            )}
+          </div>
+          <LangSelector selected={lang} onChange={switchLang} />
+        </div>
+
         {/* Tab bar */}
-        <div className="card" style={{ padding: "8px 12px", display: "flex", alignItems: "center", gap: 6 }}>
+        <div className="card" style={{ padding: "8px 12px", display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
           {(["editor", "workflow", "score"] as const).map((t) => (
-            <button
-              key={t}
-              className={`btn sm ${activeTab === t ? "" : "ghost"}`}
-              onClick={() => setActiveTab(t)}
-            >
+            <button key={t} className={`btn sm ${activeTab === t ? "" : "ghost"}`} onClick={() => setActiveTab(t)}>
               {t === "editor" ? "⌨ Editor" : t === "workflow" ? "📋 Events" : "📊 Score"}
               {t === "score" && score ? ` · ${score.total}` : ""}
             </button>
           ))}
           {activeTab === "editor" && (
-            <button className="btn sm secondary" style={{ marginLeft: "auto" }} onClick={runCode}>▶ Run</button>
+            <button
+              className="btn sm secondary"
+              style={{ marginLeft: "auto" }}
+              onClick={runCode}
+              disabled={!lang.runnable}
+              title={lang.runnable ? "Run code" : "Execution only available for Python"}
+            >
+              ▶ Run {lang.icon}
+            </button>
           )}
         </div>
 
         {/* Tab content */}
         {activeTab === "editor" && (
           <>
-            <div className="card" style={{ flex: 1, overflow: "hidden" }}>
+            <div className="card" style={{ flex: 1, overflow: "hidden", minHeight: 0 }}>
               <MonacoEditor
                 height="100%"
-                defaultLanguage="python"
+                language={lang.id}
                 theme="vs-dark"
                 value={code}
                 onChange={(v) => setCode(v || "")}
@@ -372,17 +375,21 @@ export function ChallengeAttempt({ challengeId }: { challengeId: string }) {
               />
             </div>
             {/* Console */}
-            <div className="card" style={{ padding: 12, maxHeight: 180, overflow: "auto" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
-                <div style={{ fontWeight: 700, fontSize: 12, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--text-3)" }}>Console</div>
-                {runId && <div style={{ fontSize: 11, color: "var(--text-3)" }} className="mono">{runId}</div>}
+            <div className="card" style={{ padding: 12, maxHeight: 160, overflow: "auto", flexShrink: 0 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                <div style={{ fontWeight: 700, fontSize: 11, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--text-3)" }}>Console</div>
+                {runId && <div className="mono" style={{ fontSize: 10, color: "var(--text-3)" }}>{runId}</div>}
               </div>
               <div className="mono" style={{ fontSize: 12, color: "var(--text-2)" }}>
-                {runLogs.length ? runLogs.map((l, i) => <div key={i}>{l}</div>) : <div style={{ color: "var(--text-3)" }}>No output yet. Click Run.</div>}
+                {runLogs.length ? runLogs.map((l, i) => <div key={i}>{l}</div>) : (
+                  <div style={{ color: "var(--text-3)" }}>
+                    {lang.runnable ? "No output yet. Click ▶ Run." : `Execution not available for ${lang.label} yet — submit your repo URL above.`}
+                  </div>
+                )}
               </div>
               {runResult && (
-                <div style={{ marginTop: 8, fontSize: 12, color: runResult.status === "done" ? "var(--green)" : "var(--red)" }}>
-                  [{runResult.status}] {runResult.error ? runResult.error : ""}
+                <div style={{ marginTop: 6, fontSize: 12, color: runResult.status === "done" ? "var(--green)" : "var(--red)" }}>
+                  [{runResult.status}]{runResult.error ? ` ${runResult.error}` : ""}
                 </div>
               )}
             </div>
@@ -390,10 +397,10 @@ export function ChallengeAttempt({ challengeId }: { challengeId: string }) {
         )}
 
         {activeTab === "workflow" && (
-          <div className="card" style={{ padding: 18, flex: 1, overflow: "auto" }}>
-            <div style={{ fontWeight: 700, marginBottom: 14, fontSize: 13 }}>Logged Events</div>
+          <div className="card" style={{ padding: 18, flex: 1, overflow: "auto", minHeight: 0 }}>
+            <div style={{ fontWeight: 700, marginBottom: 12 }}>Logged Events ({loggedEvents.length})</div>
             {loggedEvents.length === 0 ? (
-              <div style={{ color: "var(--text-3)" }}>No events logged yet. Start an attempt and use the Workflow Log.</div>
+              <div style={{ color: "var(--text-3)" }}>No events yet. Start an attempt and use the workflow log.</div>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 {loggedEvents.map((ev, i) => (
@@ -411,24 +418,17 @@ export function ChallengeAttempt({ challengeId }: { challengeId: string }) {
         )}
 
         {activeTab === "score" && (
-          <div className="card" style={{ padding: 18, flex: 1, overflow: "auto" }}>
+          <div className="card" style={{ padding: 20, flex: 1, overflow: "auto", minHeight: 0 }}>
             {evaluating && (
-              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 <div style={{ fontWeight: 700 }}>Evaluating…</div>
-                {evalLogs.map((l, i) => (
-                  <div key={i} style={{ fontSize: 13, color: "var(--text-2)" }}>› {l}</div>
-                ))}
-                <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
-                  {[1, 2, 3].map((i) => (
-                    <div key={i} style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--blue)", opacity: 0.5 + i * 0.15 }} />
-                  ))}
-                </div>
+                {evalLogs.map((l, i) => <div key={i} style={{ fontSize: 13, color: "var(--text-2)" }}>› {l}</div>)}
               </div>
             )}
             {!evaluating && score && <ScorePanel score={score} />}
             {!evaluating && !score && (
               <div style={{ color: "var(--text-3)", textAlign: "center", padding: "40px 0" }}>
-                <div style={{ fontSize: 32, marginBottom: 12 }}>📊</div>
+                <div style={{ fontSize: 36, marginBottom: 12 }}>📊</div>
                 <div>Start an attempt, log prompts, then click <strong>Get AI Score</strong>.</div>
               </div>
             )}
