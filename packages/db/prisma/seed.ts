@@ -1233,6 +1233,816 @@ HINTS
         correctness: "Escalation logic doesn't use sentiment; few-shot examples cover ambiguous cases; handoff is complete.",
         aiUsage: "Iterates on escalation rate measurement; uses audit data to refine criteria; tests edge cases explicitly."
       }
+    },
+
+    // ── AI Architecture — remaining exam domains ─────────────────────────────
+
+    {
+      slug: "session-fork-parallel-exploration",
+      title: "Session forking for parallel approach exploration",
+      description: "Use fork_session to branch from a shared analysis baseline and compare two competing implementation strategies side-by-side.",
+      difficulty: 3,
+      tags: ["ai", "claude-code", "agentic", "dx"],
+      prompt: `Use session forking to safely explore two competing implementation approaches from a single shared codebase analysis.
+
+CONTEXT
+You're migrating a monolithic Express app to either (A) a microservices architecture or (B) a modular monolith with clear domain boundaries. Both are valid — you need to prototype both approaches and compare tradeoffs before committing. Re-exploring the entire codebase for each approach is expensive and wasteful.
+
+REQUIREMENTS
+• Phase 1 — Shared baseline: explore the codebase with Claude Code, build a comprehensive understanding of module dependencies, database access patterns, and shared utilities. Save findings to a structured ANALYSIS.md (modules[], dependencies[], shared_state[], db_tables[]).
+
+• Phase 2 — Fork and branch:
+  - Fork A: from the shared baseline, prototype the microservices decomposition. Identify service boundaries, design inter-service communication (REST vs events), and produce APPROACH_A.md (services[], communication_pattern, tradeoffs[]).
+  - Fork B: from the same baseline, prototype the modular monolith. Design domain modules, shared kernel, and anti-corruption layers. Produce APPROACH_B.md.
+  - Both forks must start from the identical ANALYSIS.md — demonstrate they share the same baseline, not duplicate exploration.
+
+• Phase 3 — Resume and compare: use --resume to return to each fork, extend the analysis with a cost estimate (migration effort in dev-days, operational complexity score 1-10), and produce a final COMPARISON.md with a recommendation.
+
+• Session management:
+  - Name your sessions (--resume <session-name>) for each fork
+  - Demonstrate informing a resumed session about file changes ("ANALYSIS.md was updated after fork — here are the diffs")
+  - Show when to start fresh with a structured summary vs resuming a stale session
+
+ACCEPTANCE CRITERIA
+✓ ANALYSIS.md produced from shared baseline before any fork
+✓ Two independent fork sessions demonstrated with different session names
+✓ Both APPROACH files trace decisions back to ANALYSIS.md (no re-exploration)
+✓ --resume used at least twice, with explicit "here's what changed" context injection
+✓ COMPARISON.md includes recommendation with tradeoff rationale
+✓ Decision log: document when you chose resume vs fresh session and why
+
+HINTS
+- Fork early — fork right after the baseline analysis, before either approach influences the context.
+- When resuming a stale session, always inject a summary of what changed: "Since we last ran, I updated the auth module — here's the diff". Never assume the session remembers.
+- A fresh session with a structured summary is more reliable than resuming when prior tool results are stale (e.g., if you refactored files the previous session explored).
+- APPROACH files should include explicit tradeoffs the other approach doesn't have — a comparison without tradeoffs is just two descriptions.`,
+      rubric: {
+        correctness: "Shared baseline demonstrated; forks are independent; resume handled correctly with change injection.",
+        aiUsage: "Documents fork/resume decisions; uses structured summaries for stale sessions; compares systematically."
+      }
+    },
+
+    {
+      slug: "mcp-server-project-integration",
+      title: "Configure and integrate MCP servers into a Claude Code workflow",
+      description: "Set up project-scoped and user-scoped MCP servers with .mcp.json, environment variable expansion, and resource catalogs.",
+      difficulty: 3,
+      tags: ["ai", "mcp", "claude-code", "devops"],
+      prompt: `Integrate MCP servers into a Claude Code workflow for a team, covering scoping, auth, and resource exposure.
+
+CONTEXT
+Your team uses three external systems: GitHub (shared across the team), a private Jira instance (shared), and your personal Datadog account (individual). You want Claude Code to have access to all three, but with correct scoping — team tools in version control, personal tools not.
+
+REQUIREMENTS
+• Project-scoped MCP server (.mcp.json in repo root) — shared via git:
+  - GitHub MCP server: configure with $GITHUB_TOKEN environment variable expansion (never hardcode)
+  - Jira MCP server: configure with $JIRA_URL and $JIRA_API_KEY
+  - Both must be available to all developers on clone/pull
+
+• User-scoped MCP server (~/.claude.json) — personal, not in version control:
+  - Datadog MCP server: configure individually per developer
+  - Document why this goes in user scope, not project scope
+
+• Tool description enhancement: the Jira MCP server's default tool descriptions are vague ("searches Jira"). Enhance them to explain: what queries are supported, what fields are returned, when to use jira_search vs jira_get_issue, and example queries. Prove that enhanced descriptions cause Claude to prefer the MCP tool over a manual curl approach.
+
+• MCP resources: expose a content catalog as an MCP resource — a list of all open GitHub issues with id, title, labels[], assignee. This lets Claude understand available data without making exploratory tool calls.
+
+• Custom vs community servers: use the community GitHub MCP server for GitHub (don't build from scratch). Build a custom MCP server only for your team's internal deploy-status API (no community server exists for it).
+
+• Test the full setup: run a Claude Code session that uses all three servers in one task — "find all Jira tickets related to open GitHub PRs and check if any are failing in Datadog"
+
+ACCEPTANCE CRITERIA
+✓ .mcp.json uses $ENV_VAR expansion — zero hardcoded credentials in the file
+✓ Personal server correctly in ~/.claude.json, not .mcp.json
+✓ Tool descriptions enhanced with examples — demonstrated to route correctly vs vague defaults
+✓ MCP resource catalog implemented and verified (Claude can list available issues without a tool call)
+✓ Custom deploy-status MCP server built for the internal API
+✓ Cross-server task completes end-to-end in a single Claude Code session
+
+HINTS
+- Environment variable expansion in .mcp.json is the correct solution — $GITHUB_TOKEN is expanded at runtime from the developer's shell environment. Never use .env files committed to the repo.
+- Tools from all configured MCP servers are available simultaneously — Claude sees them all at connection time. This means description quality is even more important to avoid misrouting.
+- MCP resources are different from tools: resources expose content catalogs that Claude can browse, reducing the need for "what's available?" exploratory tool calls.
+- Community servers exist for GitHub, Jira, Slack, Linear — always check before building custom. Build custom only for systems with no existing server.`,
+      rubric: {
+        correctness: "Scoping correct; no hardcoded credentials; resource catalog works; custom server functional.",
+        aiUsage: "Enhanced descriptions tested against vague alternatives; documents scoping decisions."
+      }
+    },
+
+    {
+      slug: "codebase-exploration-built-in-tools",
+      title: "Master codebase exploration with Grep, Glob, Read, and Edit",
+      description: "Build systematic codebase understanding using the right built-in tool for each task — without reading everything upfront.",
+      difficulty: 2,
+      tags: ["ai", "claude-code", "debugging", "dx"],
+      prompt: `Explore and modify a large unfamiliar codebase efficiently using Claude Code's built-in tools — without reading every file.
+
+CONTEXT
+You've joined a team maintaining a 50,000-line TypeScript monorepo you've never seen before. You need to: (1) understand how the authentication flow works, (2) find all places a deprecated function is called, (3) add a new middleware without breaking existing patterns. Naive approach: read everything. Correct approach: targeted incremental exploration.
+
+THE TASK
+Starting from zero knowledge, complete all three objectives using only the built-in tools (Grep, Glob, Read, Write, Edit):
+
+Objective 1 — Trace the auth flow:
+• Use Grep to find the entry point (search for "authenticate" or "verifyToken")
+• Use Read to follow the import chain from the entry point through 3-4 levels
+• Produce AUTH_FLOW.md documenting the full flow with file:line references
+
+Objective 2 — Find all callers of a deprecated function:
+• Use Grep to find all occurrences of deprecatedHelper() across the codebase
+• Use Glob to find all files matching **/*.service.ts (where the callers likely live)
+• Produce MIGRATION_PLAN.md: list every call site with file, line, and recommended replacement
+
+Objective 3 — Add middleware without breaking patterns:
+• Use Grep to find how existing middleware is registered
+• Use Glob to find all existing middleware files (**/*.middleware.ts)
+• Use Read on 2-3 existing middleware files to understand the pattern
+• Use Edit (not Write) to add the new middleware — Edit requires unique anchor text, so find a precise anchor
+• If Edit fails (non-unique anchor), fall back to Read + Write with justification
+
+TOOL SELECTION RULES (enforce these):
+• Use Grep for: searching file contents by pattern (function names, imports, error strings)
+• Use Glob for: finding files by path pattern (**/*.test.ts, src/routes/*)
+• Use Read for: loading specific file contents once you know the file
+• Use Edit for: targeted modifications using unique surrounding context
+• Never read all files upfront — build understanding incrementally
+
+ACCEPTANCE CRITERIA
+✓ AUTH_FLOW.md produced with file:line references at each step (no guessing)
+✓ All deprecated callers found using Grep — cross-verified with Glob
+✓ Edit used successfully for the middleware addition (or documented why Read+Write fallback needed)
+✓ Tool selection log: for each action, document which tool you chose and why
+✓ Total files read: ≤15 (prove incremental exploration beats naive read-all)
+
+HINTS
+- Start with Grep, not Read. You don't know which file to read yet — search first.
+- Grep for function names across the codebase before reading any file. This tells you where to look.
+- Glob + Grep together: use Glob to narrow the file set, then Grep within that set.
+- Edit fails when anchor text appears in multiple places. Make your anchor unique by including 2-3 surrounding lines of context.
+- "Building understanding incrementally: starting with Grep to find entry points, then using Read to follow imports" is the right mental model.`,
+      rubric: {
+        correctness: "Correct tool used for each task; incremental exploration proven; Edit anchor justified.",
+        aiUsage: "Documents tool selection reasoning; proves understanding before modifying; catches all callers."
+      }
+    },
+
+    {
+      slug: "information-provenance-synthesis",
+      title: "Preserve source attribution through multi-source synthesis",
+      description: "Design a multi-agent synthesis pipeline that maintains claim-source mappings and handles conflicting information from credible sources.",
+      difficulty: 4,
+      tags: ["ai", "agentic", "prompt-engineering", "backend"],
+      prompt: `Build a research synthesis system that never loses where information came from, even after multiple agent passes.
+
+CONTEXT
+Your multi-agent research system produces reports with unsourced claims. When the synthesis agent summarises findings from the analysis agent, source URLs get lost. When two sources conflict, the agent picks one arbitrarily. When sources have different publication dates, temporal differences are misread as contradictions. The result: a report nobody trusts.
+
+REQUIREMENTS
+• Structured claim-source mapping: every agent that produces a finding must output structured objects — never plain prose:
+  {
+    claim: string,
+    source_url: string,
+    source_name: string,
+    publication_date: string,  // ISO 8601 — required, never omit
+    excerpt: string,           // verbatim quote supporting the claim
+    confidence: "high"|"medium"|"low"
+  }
+
+• Synthesis agent rules (enforce via system prompt + schema):
+  - Must preserve all source_url fields — no summarisation that drops attribution
+  - When two credible sources conflict on a statistic (e.g. "market size is $4B" vs "$6B"): include BOTH with source attribution, annotate as "conflicting figures", do NOT pick one
+  - Publication dates are required: a "contradiction" between a 2019 study and a 2024 study may simply be temporal change — the synthesis agent must check dates before labelling a conflict
+
+• Report structure:
+  - Section 1: Well-established findings (≥2 concordant sources, cite all)
+  - Section 2: Contested findings (conflicting sources, both cited with dates)
+  - Section 3: Single-source findings (flag as requiring corroboration)
+  - Financial data → tables. Narrative findings → prose. Technical findings → structured lists.
+
+• Validation: run your pipeline on the topic "LLM context window size trends 2020–2024". Verify:
+  - Every claim in the final report traces to a source URL
+  - Temporal claims include publication dates
+  - At least one conflict is correctly surfaced (not arbitrarily resolved)
+
+ACCEPTANCE CRITERIA
+✓ Claim-source schema enforced at every agent boundary — no plain-text findings
+✓ Zero unsourced claims in final report (automated check: every sentence in claims sections has a citation)
+✓ At least one genuine conflict surfaced with both sources cited and dated
+✓ Temporal data annotated with publication dates — not misread as contradiction
+✓ Report format varies by content type (tables, prose, lists) — not uniform format
+✓ Pipeline tested end-to-end on LLM context window topic
+
+HINTS
+- Attribution is lost during summarisation steps because prose doesn't carry metadata. The fix is structural: pass JSON objects, not prose, between agents.
+- "Complete document analysis with conflicting values included and explicitly annotated, letting the coordinator decide how to reconcile" — the analysis agent should never arbitrarily pick a winner.
+- Publication dates are non-negotiable in structured outputs: the difference between a 2020 study and a 2024 study on the same topic is not a contradiction, it's a timeline.
+- Rendering format should match content: financial data in tables allows quick comparison; forcing everything to prose loses the structure that makes data scannable.`,
+      rubric: {
+        correctness: "Attribution preserved through all agent passes; conflicts surfaced not resolved; dates included.",
+        aiUsage: "Designs schema before prompting; validates attribution automatically; iterates on conflict detection."
+      }
+    },
+
+    {
+      slug: "llm-cost-optimization",
+      title: "Reduce LLM API costs by 60% without degrading quality",
+      description: "Implement prompt caching, model routing, batching, and context trimming to dramatically cut costs on a high-volume AI feature.",
+      difficulty: 4,
+      tags: ["ai", "backend", "architecture", "performance"],
+      prompt: `Systematically reduce the LLM API bill for a production feature from $8,000/month to under $3,200 without degrading output quality.
+
+CONTEXT
+You run a code review bot that processes 10,000 PRs/month. Each review sends ~4,000 tokens (system prompt + diff) and receives ~800 tokens. At current pricing with Claude Sonnet, this costs ~$8,000/month. Your manager wants 60% cost reduction. Quality cannot regress — you have an eval set to prove it.
+
+COST REDUCTION TOOLKIT
+Implement ALL of the following and measure each one's contribution:
+
+1. Prompt caching: your system prompt (2,000 tokens of review criteria, examples, and conventions) is identical across all reviews. Cache it. Measure cache hit rate and cost delta.
+
+2. Model routing: classify incoming diffs by complexity before sending to the LLM:
+   - Simple diffs (≤50 lines, single file, no imports changed) → Claude Haiku
+   - Medium diffs (51-200 lines, ≤3 files) → Claude Sonnet
+   - Complex diffs (>200 lines, architectural changes, new dependencies) → Claude Sonnet
+   Log routing decisions and their accuracy.
+
+3. Batch processing: reviews that don't block merges (scheduled nightly audits, style reports) → Message Batches API (50% cost saving, up to 24h latency acceptable).
+
+4. Context trimming: strip irrelevant diff sections before sending:
+   - Remove lock file changes (package-lock.json, yarn.lock, pnpm-lock.yaml)
+   - Remove generated files (*.min.js, *.pb.go, migration SQL that's auto-generated)
+   - Remove binary file changes
+   Measure token reduction per category.
+
+5. Response caching: identical or near-identical diffs (e.g. dependency bumps) should return cached responses. Use a hash of the trimmed diff as cache key. TTL: 24h.
+
+MEASUREMENT REQUIREMENTS
+• Baseline cost: measure before any optimisation (tokens in, tokens out, cost per review)
+• Per-optimisation delta: implement each technique separately, measure cost impact
+• Quality gate: run your eval set (50 labelled reviews) before and after — precision/recall must not drop >2%
+• Final dashboard: cost/review, cache hit rate, routing distribution, total monthly projection
+
+ACCEPTANCE CRITERIA
+✓ Prompt caching implemented — cache hit rate ≥85% in steady state
+✓ Model router implemented with 3 tiers — routing accuracy ≥90% on test set
+✓ Batch processing for non-blocking workflows — measured 50% cost reduction on that segment
+✓ Context trimming removes lock files and generated files — measured token reduction
+✓ Response cache implemented with diff hashing — hit rate ≥30% on repeated dependency bumps
+✓ Quality eval: precision/recall change <2% after all optimisations
+✓ Total measured cost reduction ≥60%
+
+HINTS
+- Prompt caching gives the highest ROI with the least work — do it first.
+- Model routing mistake to avoid: routing by diff size alone misses complexity. A 30-line change that adds a new external API call is more complex than a 200-line test file addition.
+- For the batch API: calculate whether your SLA allows it. If reviews must post within 1 hour of PR open, batch API's 24h window is incompatible.
+- Response caching works best for mechanical changes: version bumps, import reordering, whitespace normalisation. These appear frequently and don't need fresh reviews.`,
+      rubric: {
+        correctness: "Each technique measured independently; quality eval run; 60% target met with evidence.",
+        aiUsage: "Uses AI to classify diffs; iterates on router accuracy; validates with eval set before shipping."
+      }
+    },
+
+    {
+      slug: "streaming-llm-response",
+      title: "Stream LLM responses with SSE and handle partial output",
+      description: "Implement streaming LLM responses via Server-Sent Events with token-level updates, cancellation, and partial output recovery.",
+      difficulty: 3,
+      tags: ["ai", "backend", "realtime", "sse"],
+      prompt: `Build a production-ready LLM streaming endpoint that feels instant to users and handles all failure modes gracefully.
+
+CONTEXT
+Your AI feature currently waits for the full LLM response before showing anything — users see a blank screen for 3-8 seconds, then everything appears at once. You need streaming: show tokens as they arrive, support cancellation mid-stream, and handle network interruptions without losing partial output.
+
+REQUIREMENTS
+• Streaming endpoint: POST /api/ai/stream — accepts { prompt, context } and streams the response via Server-Sent Events
+  SSE event format:
+  - data: { type: "token", content: "..." }  — one per token/chunk
+  - data: { type: "done", usage: { input_tokens, output_tokens } }
+  - data: { type: "error", code: string, message: string }
+
+• Client cancellation: when the user clicks "Stop", send a DELETE /api/ai/stream/:streamId request. The server must abort the in-flight LLM request and emit a { type: "cancelled" } event.
+
+• Partial output persistence: if a stream is interrupted (network drop, server restart), persist the partial response to a cache (Redis or in-memory) keyed by streamId. On reconnect (GET /api/ai/stream/:streamId/resume), replay persisted tokens + continue if the LLM request is still alive, or return the partial content if not.
+
+• Backpressure: if the client is slow to consume events (e.g., slow network), buffer up to 100 tokens server-side. If the buffer exceeds 100, pause reading from the LLM stream until the client catches up.
+
+• Structured streaming for JSON output: when the request includes outputSchema, parse the streaming JSON incrementally — show partial valid JSON as it forms (e.g., show each array element as soon as its closing } arrives, not when the full array closes).
+
+• Tests:
+  - Normal stream completes correctly
+  - Cancellation stops the LLM request (verify no further billing after cancel)
+  - Network drop mid-stream, reconnect, partial resume
+  - Backpressure: slow client doesn't cause server OOM
+
+ACCEPTANCE CRITERIA
+✓ Streaming endpoint emits token events with <50ms latency from LLM chunk to client
+✓ Cancellation tested — LLM request aborted, confirmed by usage event delta
+✓ Partial resume tested — reconnect after kill -9 restores partial content
+✓ Backpressure tested with an artificially slow client (50ms sleep between reads)
+✓ Structured JSON streaming shows incremental valid objects, not raw partial JSON
+
+HINTS
+- Use the Anthropic streaming API (stream: true or .stream() in the SDK) — don't wait for the full response.
+- SSE requires specific headers: Content-Type: text/event-stream, Cache-Control: no-cache, Connection: keep-alive.
+- For cancellation: store the AbortController per streamId. On DELETE, call controller.abort() — the LLM SDK will throw an AbortError you can catch cleanly.
+- Partial JSON streaming: buffer incoming text, and after each chunk, try to extract complete JSON objects using a streaming JSON parser (e.g., jsonstream, oboe.js) rather than waiting for the full payload.
+- Do not use WebSockets for this — SSE is strictly server→client and is simpler to implement, proxy, and scale for this use case.`,
+      rubric: {
+        correctness: "All SSE event types correct; cancellation stops billing; partial resume works; backpressure tested.",
+        aiUsage: "Uses AI to implement incremental JSON parsing; iterates on edge cases from test failures."
+      }
+    },
+
+    {
+      slug: "semantic-intent-router",
+      title: "Build a semantic intent router for multi-model AI pipelines",
+      description: "Classify incoming requests by intent and route to the optimal model or agent — balancing cost, latency, and quality.",
+      difficulty: 4,
+      tags: ["ai", "backend", "architecture", "prompt-engineering"],
+      prompt: `Build a production intent router that sends each request to the right model without over-spending or under-delivering.
+
+CONTEXT
+Your AI platform serves 5 distinct request types with very different requirements:
+- Code generation (complex, needs high quality, users wait)
+- Code explanation (medium complexity, fast expected)
+- Bug identification (needs careful reasoning, moderate latency ok)
+- Documentation generation (repetitive, high volume, cost-sensitive)
+- Security review (high stakes, must not use a weak model)
+
+REQUIREMENTS
+• Intent classifier: given a raw user request, classify it into one of the 5 categories (+ "unknown") using an embedding-based classifier OR a lightweight LLM call. Target: ≤100ms classification latency.
+
+• Routing table (enforce programmatically — not just prompt guidance):
+  | Intent | Model | Max tokens | Stream |
+  |---|---|---|---|
+  | code_generation | claude-sonnet | 4096 | yes |
+  | code_explanation | claude-haiku | 1024 | yes |
+  | bug_identification | claude-sonnet | 2048 | no |
+  | documentation | claude-haiku | 2048 | batch |
+  | security_review | claude-sonnet | 4096 | no |
+  | unknown | claude-haiku | 512 | no (ask clarifying question) |
+
+• Confidence threshold: if classifier confidence <0.7, route to "unknown" regardless of predicted class. Never route a low-confidence security_review to a cheaper model.
+
+• Hard overrides: if the request contains certain signals regardless of classifier output:
+  - Contains "CVE", "vulnerability", "injection", "XSS", "CSRF" → always security_review
+  - Contains triple backticks with >100 lines of code → always code_generation
+
+• Observability: log every routing decision with { request_id, predicted_intent, confidence, model_used, latency_ms, cost_usd }. Build a dashboard showing routing distribution, average cost per intent, and misrouting rate (based on user feedback thumbs down).
+
+• Eval set: create 100 labelled requests (20 per intent). Measure classifier accuracy. Iterate until ≥92% accuracy across all intents.
+
+ACCEPTANCE CRITERIA
+✓ Classifier achieves ≥92% accuracy on labelled eval set
+✓ Routing table enforced programmatically — no prompt-only routing
+✓ Confidence threshold tested — low-confidence requests go to unknown
+✓ Hard overrides tested with security-sensitive keywords
+✓ Observability dashboard shows routing distribution and cost per intent
+✓ Misrouting budget: security_review never routed to haiku (0% tolerance)
+
+HINTS
+- For the classifier, a few-shot LLM call (claude-haiku, 5 examples per class) is faster to build than an embedding classifier and achieves comparable accuracy for 5 classes.
+- Confidence from an LLM: ask it to return JSON { intent: string, confidence: 0-1, reasoning: string }. Use tool_use to guarantee the schema.
+- Hard overrides should be regex-based and run BEFORE the classifier — they're cheap and deterministic.
+- The misrouting budget for security_review is zero. It's better to over-route security requests to the expensive model than to under-route them.
+- Track "model used" in your logs, not just "intended model" — overrides and fallbacks mean they can diverge.`,
+      rubric: {
+        correctness: "Classifier ≥92% accuracy; routing enforced not prompted; hard overrides work; security never downgraded.",
+        aiUsage: "Uses AI to generate labelled eval set; iterates on classifier prompts; validates with metrics."
+      }
+    },
+
+    {
+      slug: "rate-limiter-distributed",
+      title: "Implement a distributed rate limiter with sliding window",
+      description: "Build a Redis-backed sliding window rate limiter that works correctly across multiple server instances.",
+      difficulty: 3,
+      tags: ["backend", "security", "architecture", "database"],
+      prompt: `Build a rate limiter that prevents abuse while staying fair to legitimate users — across a multi-instance deployment.
+
+CONTEXT
+Your API is being hit with burst traffic from scrapers. A simple in-memory counter doesn't work because you run 4 server instances behind a load balancer — each instance only sees 25% of the traffic and counts separately. You need a centralised, accurate, performant rate limiter.
+
+REQUIREMENTS
+• Algorithm: sliding window counter (not fixed window — fixed window allows 2x burst at window boundaries)
+  Implementation: Redis sorted set per user/IP, scored by timestamp. Count entries in the last N seconds. Atomic via Lua script.
+
+• Rate limit tiers (enforce all):
+  | Tier | Limit | Window | Burst allowance |
+  |---|---|---|---|
+  | anonymous | 20 req | 60s | 5 extra for 10s |
+  | authenticated | 200 req | 60s | 20 extra for 10s |
+  | premium | 2000 req | 60s | 200 extra for 10s |
+  | internal | unlimited | — | — |
+
+• Response headers (standard):
+  - X-RateLimit-Limit: tier limit
+  - X-RateLimit-Remaining: remaining in window
+  - X-RateLimit-Reset: Unix timestamp when window resets
+  - Retry-After: seconds to wait (only on 429)
+
+• Key design: rate limit by { user_id OR ip_address, endpoint_category } — so a user who hits the search endpoint doesn't burn their write endpoint budget
+
+• Redis key TTL: auto-expire keys after the window duration + 10s buffer — no manual cleanup needed
+
+• Graceful degradation: if Redis is unavailable, fail open (allow requests) with a warning header X-RateLimit-Degraded: true — never block traffic because the rate limiter is down
+
+• Tests:
+  - Sliding window accuracy: burst at boundary shouldn't allow 2x (prove this)
+  - Multi-instance: simulate 4 concurrent clients hitting the same limit
+  - Redis down: verify fail-open behaviour
+  - Burst allowance: burst doesn't persist beyond the burst window
+
+ACCEPTANCE CRITERIA
+✓ Sliding window prevents boundary burst (tested with synthetic traffic at t=59s, t=1s of new window)
+✓ Multi-instance test: 4 parallel clients share the same Redis counter correctly
+✓ All 4 response headers present on every response (including non-rate-limited ones)
+✓ Fail-open tested with Redis mock that throws
+✓ Endpoint-scoped limits: search and write endpoints counted separately
+✓ Lua script used for atomic Redis operations (no race conditions under concurrent load)
+
+HINTS
+- Fixed window bug: if limit is 100/min and window resets at :00, a user can send 100 at :59 and 100 more at :00 — that's 200 in 2 seconds. Sliding window prevents this.
+- Redis Lua scripts are the right tool for "check and increment atomically" — without them, two concurrent requests can both read 99, both increment to 100, and both succeed when only one should.
+- Sorted set approach: ZADD key timestamp timestamp (score = member = timestamp), ZREMRANGEBYSCORE key 0 (now-window), ZCARD key to get count. All in one Lua script.
+- Fail-open is the correct default for rate limiters: a rate limiter that takes down your service is worse than no rate limiter.`,
+      rubric: {
+        correctness: "Sliding window correct; Lua atomic; multi-instance tested; fail-open works; headers correct.",
+        aiUsage: "Uses AI to write Lua script; iterates on boundary test cases; validates concurrency with load test."
+      }
+    },
+
+    {
+      slug: "event-sourcing-audit-log",
+      title: "Build an event-sourced audit log with CQRS",
+      description: "Implement event sourcing for a financial ledger — immutable event log, projections, and replays with full audit trail.",
+      difficulty: 5,
+      tags: ["backend", "architecture", "database", "security"],
+      prompt: `Build an event-sourced ledger system where every state change is a permanent, replayable event.
+
+CONTEXT
+You're building a financial ledger for an internal tool that tracks budget allocations. Auditors need to see every change ever made, who made it, and reproduce any historical state. A traditional CRUD database with an "updated_at" column isn't sufficient — updates destroy history.
+
+REQUIREMENTS
+• Event store: an append-only events table — events are NEVER updated or deleted
+  Schema: { id, stream_id, event_type, payload, metadata, sequence_number, created_at }
+
+• Domain events (implement all):
+  - BudgetAllocated { stream_id: budget_id, amount, currency, allocated_by, fiscal_year }
+  - BudgetAdjusted { stream_id: budget_id, delta, reason, adjusted_by }
+  - BudgetTransferred { from_budget_id, to_budget_id, amount, transferred_by }
+  - BudgetFrozen { stream_id: budget_id, reason, frozen_by }
+  - BudgetClosed { stream_id: budget_id, final_balance, closed_by }
+
+• CQRS separation:
+  - Write side: validate command → produce event → append to event store. No reads of current state during writes (use sequence_number for optimistic concurrency).
+  - Read side: maintain a projected balances table, rebuilt by replaying events. Rebuild must be idempotent.
+
+• Optimistic concurrency: each command includes the expected sequence_number. If the actual sequence_number is higher (concurrent write), reject with a 409 ConflictError — never silently overwrite.
+
+• Replay: implement a full replay from event store to rebuild all projections from scratch. Must produce identical results on repeated replays (idempotent).
+
+• Point-in-time query: given a budget_id and a timestamp, return the exact balance at that point by replaying only events up to that timestamp.
+
+• Audit trail API:
+  - GET /budgets/:id/history — returns all events in order with actor, timestamp, and human-readable description
+  - GET /budgets/:id/balance?at=ISO8601 — point-in-time balance
+
+ACCEPTANCE CRITERIA
+✓ Events are append-only — no UPDATE/DELETE in the event store (enforced at DB level with a trigger or CHECK constraint)
+✓ Optimistic concurrency tested: concurrent writes to the same budget produce exactly one success and one 409
+✓ Full replay produces identical projections to incremental projection (tested with 1000 events)
+✓ Point-in-time query returns correct balance at t=5 when replaying 20 events
+✓ BudgetTransferred is atomic — both sides update or neither does (saga or transaction)
+✓ Audit trail API returns human-readable event descriptions (not raw JSON payloads)
+
+HINTS
+- The append-only constraint should be enforced at the database level, not just application level. A DB trigger that raises an error on UPDATE/DELETE is the correct approach.
+- Optimistic concurrency: the command handler reads the current max(sequence_number) for the stream, checks it matches the expected value, then appends with sequence_number + 1 — all in a transaction.
+- Replay idempotency: your projection update logic should use UPSERT (INSERT ON CONFLICT UPDATE) so replaying the same event twice produces the same result.
+- BudgetTransferred spans two streams — this is a saga. Simplest implementation: append a TransferDebitedFrom event to stream A and a TransferCreditedTo event to stream B within the same DB transaction.`,
+      rubric: {
+        correctness: "Append-only enforced at DB level; optimistic concurrency correct; replay idempotent; point-in-time works.",
+        aiUsage: "Uses AI to design event schema; iterates on saga implementation; validates replay consistency."
+      }
+    },
+
+    {
+      slug: "graphql-api-dataloader",
+      title: "Design a GraphQL API with DataLoader and N+1 prevention",
+      description: "Build a GraphQL API that solves the N+1 problem with DataLoader batching and implements cursor-based pagination.",
+      difficulty: 3,
+      tags: ["backend", "api", "performance", "database"],
+      prompt: `Build a production GraphQL API that doesn't melt your database under load.
+
+CONTEXT
+Your REST API is being replaced by GraphQL for a developer platform. The first implementation worked locally but caused a database meltdown in staging — a query for 50 users fetching their repos and stars caused 1,251 SQL queries (1 + 50 + 50*25 — a classic N+1). You need DataLoader and proper query design.
+
+SCHEMA
+\`\`\`graphql
+type User {
+  id: ID!
+  username: String!
+  repos(first: Int, after: String): RepoConnection!
+  followers(first: Int, after: String): UserConnection!
+  totalStars: Int!
+}
+type Repo {
+  id: ID!
+  name: String!
+  owner: User!
+  starCount: Int!
+  language: String
+  topics: [String!]!
+  lastCommit: Commit
+}
+type Commit { sha: String!, message: String!, author: User!, committedAt: String! }
+\`\`\`
+
+REQUIREMENTS
+• DataLoader for every relationship — no unbatched database calls:
+  - userByIdLoader: batch user fetches by ID (one SQL IN query per tick)
+  - reposByOwnerLoader: batch repos by owner_id
+  - starCountByRepoLoader: batch star counts by repo_id
+  - Prove: a query for 50 users + their repos + star counts = exactly 3 SQL queries
+
+• Cursor-based pagination (not offset):
+  - Use opaque base64-encoded cursors (encode: { id, created_at })
+  - Implement hasNextPage and hasPreviousPage correctly
+  - First/last/before/after all work correctly
+  - Offset pagination must be blocked — return an error if page/offset args are passed
+
+• Query depth limiting: reject queries deeper than 5 levels (prevents nested amplification attacks)
+
+• Query complexity scoring: assign a cost to each field (User=1, repos=5, starCount=2). Reject queries with total cost >100.
+
+• N+1 proof: write a test that captures all SQL queries executed during a complex query. Assert total query count ≤ expected (based on DataLoader batch count).
+
+• Mutations with optimistic locking:
+  - starRepo(repoId: ID!): increment star count using UPDATE repos SET stars = stars + 1 — not read-then-write
+
+ACCEPTANCE CRITERIA
+✓ DataLoader batch test: 50 users + repos + stars = exactly 3 SQL queries (verified by query interceptor)
+✓ Cursor pagination: all 4 args (first/last/before/after) tested with edge cases (empty page, last page)
+✓ Depth limit tested: query at depth 6 returns error
+✓ Complexity limit tested: expensive query returns error with computed cost in message
+✓ Offset pagination blocked with clear error message
+✓ starRepo mutation uses atomic SQL increment (verified — no SELECT before UPDATE)
+
+HINTS
+- DataLoader batches requests within the same event loop tick. If you await inside a resolver instead of returning a Promise, you break batching. Always return the Promise from dataloader.load(), never await it.
+- Cursor design: encode { id, created_at } in base64. Decode on input, use as WHERE created_at > ? AND id > ? for stable pagination across concurrent inserts.
+- hasNextPage: when fetching "first: N", fetch N+1 rows. If you get N+1, hasNextPage is true, return only N.
+- Query complexity is additive per field. A query that asks for 50 users × 25 repos × star count = 50×25×2 = 2500 cost — reject it.
+- For the atomic star increment: UPDATE repos SET star_count = star_count + 1 WHERE id = $1 RETURNING star_count. No SELECT needed.`,
+      rubric: {
+        correctness: "DataLoader proven to batch correctly; cursor pagination handles all edge cases; depth/complexity limits work.",
+        aiUsage: "Uses AI to design DataLoader strategy; iterates on cursor edge cases; validates with query count assertions."
+      }
+    },
+
+    {
+      slug: "websocket-collab-presence",
+      title: "Build real-time collaborative presence with WebSockets",
+      description: "Implement multi-user live cursors, presence indicators, and conflict-free collaborative editing using WebSockets and CRDTs.",
+      difficulty: 5,
+      tags: ["backend", "realtime", "frontend", "fullstack"],
+      prompt: `Build the collaborative layer that makes multiple users feel like they're working in the same room.
+
+CONTEXT
+Your document editor needs Google Docs-style collaboration: see other users' cursors in real-time, know who's online, and merge concurrent edits without conflicts. This is harder than it looks — naive approaches create race conditions, ghost users, and edit loss under concurrent load.
+
+REQUIREMENTS
+• WebSocket server: rooms keyed by document_id. Each connection carries { user_id, document_id, session_id }.
+
+• Presence system:
+  - On connect: broadcast { type: "user_joined", user_id, name, avatar, color } to all room members
+  - On disconnect: broadcast { type: "user_left", user_id }. Handle ungraceful disconnects (no close frame) — detect via heartbeat ping/pong, remove user after 2 missed pongs.
+  - GET /api/documents/:id/presence — HTTP endpoint listing currently online users (for initial page load before WS connects)
+
+• Live cursors: clients emit { type: "cursor_move", position: { line, column } } — throttled to 50ms on the client. Server fans out to all OTHER room members (not the sender).
+
+• Collaborative editing — CRDT approach:
+  - Use Yjs (recommended) or implement a simplified operation-based CRDT
+  - Client sends { type: "update", update: Uint8Array } (Yjs update binary)
+  - Server broadcasts to all other room members AND persists the update to a database for new joiners
+  - On new connection: send all persisted updates so the new client can sync to current state
+  - Handle out-of-order updates: Yjs handles this automatically — document this behaviour
+
+• Horizontal scaling: your presence and message fan-out must work across multiple server instances using Redis Pub/Sub. A user on server A and a user on server B in the same document room must receive each other's updates.
+
+• Tests:
+  - Ghost user detection: kill a client without closing the WS — verify it's removed after 2 heartbeat intervals
+  - Concurrent edits: two clients edit the same paragraph simultaneously — verify both edits are preserved (no lost update)
+  - Late join: client joins after 10 edits — verify they see the current state immediately
+
+ACCEPTANCE CRITERIA
+✓ Presence: join/leave events delivered to all room members including ungraceful disconnects
+✓ Ghost detection: unresponsive client removed within 2 × heartbeat_interval
+✓ Live cursors: fan-out to others only, throttled, <100ms end-to-end latency
+✓ Concurrent edit test: 2 clients edit simultaneously, both changes visible in final document
+✓ Late join: client sees fully merged document state on connect (not empty)
+✓ Redis Pub/Sub tested: clients on different "instances" (simulated with 2 server processes) receive each other's updates
+
+HINTS
+- Heartbeat: server sends ping every 30s. Client must respond with pong within 10s. If no pong, close the connection and broadcast user_left.
+- Cursor throttling belongs on the CLIENT side (debounce/throttle the cursor_move emit) — don't rely on server-side throttling.
+- Yjs is the right choice: it handles all CRDT complexity (concurrent edits, out-of-order updates, offline sync). Don't implement your own CRDT unless you understand convergence proofs.
+- Redis Pub/Sub fan-out: each server instance subscribes to "document:{id}" channels. On receiving a WS message, publish to Redis. Each server instance fans out to its local WS connections for that document.
+- The presence HTTP endpoint is important for page load UX — show online users immediately without waiting for WS connection.`,
+      rubric: {
+        correctness: "Ghost detection works; concurrent edits preserved; late join syncs correctly; Redis fan-out tested.",
+        aiUsage: "Uses AI to understand Yjs CRDT model; iterates on heartbeat edge cases; validates concurrency with tests."
+      }
+    },
+
+    {
+      slug: "llm-observability-tracing",
+      title: "Add full observability to an LLM-powered application",
+      description: "Instrument an AI application with traces, token usage tracking, latency histograms, and cost attribution per feature.",
+      difficulty: 3,
+      tags: ["ai", "devops", "observability", "backend"],
+      prompt: `You can't improve what you can't measure. Instrument your LLM application so every call is traced, costed, and debuggable.
+
+CONTEXT
+Your AI application makes LLM calls from 6 different features (code review, documentation generation, chat, search, summarisation, classification). You have no visibility into which features are slow, which are expensive, or which fail most often. When something breaks, you can't reproduce it.
+
+REQUIREMENTS
+• Trace every LLM call with a structured span:
+  {
+    trace_id: string,       // propagated from the incoming HTTP request
+    span_id: string,        // unique per LLM call
+    feature: string,        // "code_review" | "documentation" | etc.
+    model: string,
+    prompt_tokens: number,
+    completion_tokens: number,
+    latency_ms: number,
+    cost_usd: number,       // calculated from token counts + model pricing
+    status: "success" | "error" | "timeout",
+    error_code?: string,
+    prompt_hash: string,    // SHA-256 of prompt (for dedup/cache analysis) — NOT the prompt itself
+    user_id?: string        // for per-user cost attribution
+  }
+
+• Storage: write spans to a spans table. Index on: feature, model, status, created_at, user_id.
+
+• Metrics to expose (Prometheus-compatible /metrics endpoint):
+  - llm_request_duration_ms histogram (labels: feature, model)
+  - llm_tokens_total counter (labels: feature, model, type=[prompt|completion])
+  - llm_cost_usd_total counter (labels: feature)
+  - llm_errors_total counter (labels: feature, error_code)
+
+• Cost attribution: a weekly cost report showing cost per feature, cost per user (top 10), and cost trend vs. prior week. Runnable as a script.
+
+• Slow query detection: if any LLM call exceeds 10s, emit an alert log with full span context (never truncate the prompt — but hash it, don't log it raw due to PII).
+
+• Prompt replay: given a span_id, reconstruct the exact request (model, system_prompt, messages, parameters) that was sent. Store these securely — encrypted at rest.
+
+• Dashboard queries (write as SQL views):
+  - P50/P95/P99 latency per feature per day
+  - Error rate per feature (errors / total requests)
+  - Cost per feature per day with 7-day moving average
+  - Top 10 most expensive users this month
+
+ACCEPTANCE CRITERIA
+✓ Every LLM call produces a span — no uninstrumented paths (tested by wrapping the LLM client)
+✓ /metrics endpoint returns valid Prometheus format — tested with promtool check metrics
+✓ Cost calculation verified against known pricing for claude-haiku and claude-sonnet
+✓ Prompt replay tested — reconstructed request produces identical output on re-run
+✓ 4 SQL views implemented and returning correct data on seed data
+✓ Slow call detection fires for calls >10s (tested with a mocked slow response)
+
+HINTS
+- Wrap your LLM client once (a thin instrumented wrapper) rather than adding tracing to every call site. Every feature uses the wrapper — zero uninstrumented paths.
+- Never log raw prompts: they may contain PII, secrets, or copyrighted content. Hash them. Store the full prompt encrypted separately, accessible only via the replay feature.
+- Cost calculation: maintain a pricing table in your DB (model, price_per_1k_input_tokens, price_per_1k_output_tokens). Join with spans to get cost. Update the pricing table when Anthropic changes prices.
+- Prometheus histogram: use exponential buckets (1ms, 5ms, 25ms, 100ms, 500ms, 2000ms, 10000ms) — LLM latency is long-tailed.
+- trace_id propagation: extract from the incoming HTTP request (X-Trace-Id header or generate one if absent). Pass it through your entire call chain so LLM spans are associated with the originating request.`,
+      rubric: {
+        correctness: "All paths instrumented; metrics Prometheus-valid; cost calculations correct; replay works.",
+        aiUsage: "Uses AI to design span schema; iterates on SQL views; validates with seed data and known pricing."
+      }
+    },
+
+    {
+      slug: "plan-mode-architecture-decision",
+      title: "Use plan mode to navigate a complex architectural decision",
+      description: "Apply Claude Code plan mode to explore a large-scale refactor, evaluate approaches, and produce an implementation plan before touching any code.",
+      difficulty: 2,
+      tags: ["ai", "claude-code", "architecture", "dx"],
+      prompt: `Practice the discipline of planning before implementing — using Claude Code plan mode to safely explore a high-stakes architectural decision.
+
+CONTEXT
+Your team needs to migrate a monolithic Node.js app (15,000 lines, 80+ API endpoints, 3 external service integrations) from a callback-based architecture to async/await with proper error handling. This touches nearly every file. Two developers who tried "just starting" caused 3-day debugging sessions. You are going to plan first.
+
+THE TASK
+Using Claude Code plan mode, produce a complete migration plan before modifying a single line of code.
+
+PLAN MODE WORKFLOW
+Phase 1 — Codebase exploration (plan mode, no edits):
+• Map all callback patterns: find every function(err, result) signature with Grep
+• Identify the 5 most deeply nested callback chains (callback hell hotspots)
+• Find all third-party libraries that use callbacks vs those with Promise APIs
+• Document all global error handlers and how they interact with callbacks
+
+Phase 2 — Approach evaluation (plan mode, no edits):
+• Evaluate 3 migration strategies:
+  A. Big bang: migrate everything at once in a feature branch
+  B. Incremental: migrate module by module, maintain compatibility shims
+  C. Strangler fig: run old and new side-by-side, gradually shift traffic
+• For each: estimate effort (dev-days), risk level (1-5), rollback complexity, and test coverage requirements
+• Recommend one approach with explicit reasoning
+
+Phase 3 — Implementation plan (still plan mode):
+• Sequence the migration: which modules first, which last, why
+• Identify the critical path (modules that block everything else)
+• Define done: what does "this module is migrated" mean concretely (tests pass, no callback syntax remaining, error handling unified)
+• Write the first 3 migration tickets with clear acceptance criteria
+
+Phase 4 — Validate the plan (switch to direct execution for ONE module only):
+• Pick the lowest-risk module from your plan
+• Implement the async/await migration for that module only
+• Verify your plan assumptions held — update the plan where they didn't
+
+DELIVERABLES
+• CODEBASE_MAP.md: callback patterns, hotspots, library inventory
+• APPROACH_COMPARISON.md: 3 strategies with tradeoffs, recommendation
+• MIGRATION_PLAN.md: sequenced modules, critical path, ticket definitions
+• MIGRATION_LOG.md: lessons from the pilot module — what matched the plan, what didn't
+
+ACCEPTANCE CRITERIA
+✓ Plan mode used for Phases 1-3 — no code modifications during exploration
+✓ Grep evidence for all callback pattern claims (no guessing)
+✓ 3 approaches compared with quantitative estimates
+✓ Pilot module migrated successfully — all existing tests pass
+✓ MIGRATION_LOG.md shows at least one plan assumption that was wrong and how it was corrected
+
+HINTS
+- Plan mode prevents costly rework — you can explore freely without fear of breaking things.
+- The most common mistake: starting with the biggest, most important module. Start with the smallest, most isolated one. Validate your approach before betting the big ones on it.
+- "Strangler fig" is usually the right answer for large migrations — it lets you ship value incrementally and roll back individual modules.
+- Use the Explore subagent for verbose file-scanning phases to preserve main conversation context for high-level reasoning.
+- Your plan WILL have wrong assumptions. That's fine. The point is to discover them on a low-risk pilot module, not on the auth system.`,
+      rubric: {
+        correctness: "Plan mode used correctly; Grep evidence for all claims; pilot module migrated; plan updated from reality.",
+        aiUsage: "Explores before implementing; documents wrong assumptions; uses Explore subagent for verbose phases."
+      }
+    },
+
+    {
+      slug: "multimodal-data-extraction",
+      title: "Extract structured data from images and PDFs using vision",
+      description: "Use Claude's vision capabilities to extract structured data from screenshots, scanned forms, and mixed-media documents.",
+      difficulty: 3,
+      tags: ["ai", "prompt-engineering", "data", "backend"],
+      prompt: `Build a document intelligence pipeline that extracts structured data from images, scanned PDFs, and mixed-media documents using Claude's vision API.
+
+CONTEXT
+Your company receives thousands of mixed-format documents monthly: scanned vendor invoices (JPEG/PNG), expense receipts (photos from phones), compliance forms (PDF with embedded images), and screenshots of web dashboards. Manual data entry is expensive and error-prone. You need a vision-based extraction pipeline.
+
+REQUIREMENTS
+• Multi-format input handling:
+  - JPEG/PNG: pass directly as base64 image
+  - PDF: extract pages as images (use pdf2pic or similar), process page-by-page
+  - Mixed PDF (text + images): extract text layer separately, combine with vision output
+
+• Extraction targets (implement all):
+  1. Vendor invoices → InvoiceSchema (vendor, line_items[], totals, dates)
+  2. Expense receipts → ReceiptSchema (merchant, amount, category, date, tax)
+  3. Compliance forms → FormSchema (form_type, fields: Record<string, string>, signatures: boolean, dates[])
+  4. Dashboard screenshots → DashboardSchema (metrics: [{name, value, unit, trend}], time_range, source)
+
+• Image preprocessing: before sending to the API, resize images >2MB to fit within API limits while preserving text readability. Log the resize ratio.
+
+• Confidence scoring per field: ask Claude to return confidence 0-1 per extracted field. Route low-confidence fields (< 0.7) to a human review queue.
+
+• Handling degraded input:
+  - Skewed/rotated images: note the issue in extraction metadata, attempt anyway
+  - Handwritten text: extract where legible, mark uncertain fields with confidence <0.5
+  - Partially obscured data (e.g. credit card last 4 only): extract what's visible, don't fabricate
+
+• Few-shot examples: for each document type, include 1 example image (base64) + expected extraction in the system prompt. Measure accuracy improvement vs zero-shot.
+
+• Batch pipeline: process 50 documents using Message Batches API. Track per-document status (pending, success, needs_review, failed). Retry only failed documents.
+
+ACCEPTANCE CRITERIA
+✓ All 4 document types extract correctly on 10 test samples each
+✓ Per-field confidence scores present — low-confidence fields routed to review queue
+✓ PDF multi-page extraction works — all pages processed, results merged
+✓ Partial/degraded input handled gracefully — no fabricated data for obscured fields
+✓ Few-shot accuracy: measure improvement over zero-shot on 20 test documents
+✓ Batch pipeline processes 50 documents; failed ones retried by document_id
+
+HINTS
+- Vision quality tip: send the highest resolution image you can within the API limits. Claude's accuracy on text extraction degrades significantly on low-resolution images.
+- For confidence scoring: ask Claude explicitly: "For each extracted field, include a confidence score 0.0-1.0 based on how clearly the value is visible in the image."
+- Never fabricate: instruct Claude explicitly: "If a field is not clearly visible, return null — do not infer or estimate." This is especially important for amounts and dates.
+- Multi-page PDFs: process each page independently, then merge overlapping fields (e.g. if vendor name appears on page 1 and totals on page 3, merge into one record).
+- Few-shot with images: include the example image as a base64 image block in your messages array before the actual document. Claude learns the pattern from the visual example.`,
+      rubric: {
+        correctness: "All 4 schemas extract correctly; confidence routing works; no fabrication on obscured fields; batch tracks status.",
+        aiUsage: "Few-shot examples chosen to cover ambiguous formats; iterates on low-confidence cases; validates with accuracy metrics."
+      }
     }
   ] as const;
 
