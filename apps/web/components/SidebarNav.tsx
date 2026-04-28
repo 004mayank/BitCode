@@ -74,34 +74,57 @@ function BitCodeLogo({ isDark }: { isDark: boolean }) {
 }
 
 /**
- * Compact monogram shown when sidebar is collapsed.
- * Pixel-art "B{" — 28×28 grid, p=4
+ * Pixel-art laptop with </ > on screen — shown when sidebar is collapsed.
+ * 14-col × 12-row grid, p=2. Matches the brand laptop icon.
  */
-function CollapsedMark({ isDark }: { isDark: boolean }) {
-  const fg  = isDark ? "#ffffff" : "#111111";
-  const acc = isDark ? "#8A5CFF" : "#6C3BFF";
-  const p = 3;
-  // ">" chevron in accent
-  const chevron: [number,number][] = [[0,0],[1,1],[2,2],[1,3],[0,4]];
-  // "/" slash in fg
-  const slash: [number,number][] = [[3,0],[2,1],[1,2],[0,3]];
-
-  const px = (x: number, y: number, fill: string) => (
-    <rect key={`${x}-${y}`} x={8 + x*p} y={6 + y*p} width={p} height={p} fill={fill} />
-  );
+function CollapsedMark() {
+  const frame  = "#4a4b6a";   // screen housing
+  const screen = "#0c1240";   // dark navy screen bg
+  const green  = "#2bff2b";   // </ > colour
+  const base   = "#3b3c5a";   // keyboard base
 
   return (
     <svg
-      viewBox="0 0 28 28"
+      viewBox="0 0 28 26"
       width="28"
-      height="28"
+      height="26"
       xmlns="http://www.w3.org/2000/svg"
       shapeRendering="crispEdges"
-      aria-label="BC"
+      aria-label="[/]"
       style={{ display: "block", flexShrink: 0 }}
     >
-      {chevron.map(([c, r]) => px(c, r, acc))}
-      {slash.map(([c, r]) => px(c, r, fg))}
+      {/* ── Screen housing (outer frame) ── */}
+      <rect x="0"  y="0"  width="28" height="20" fill={frame}/>
+      {/* ── Screen interior ── */}
+      <rect x="2"  y="2"  width="24" height="16" fill={screen}/>
+
+      {/* ── < ── */}
+      <rect x="8"  y="4"  width="2" height="2" fill={green}/>
+      <rect x="6"  y="6"  width="2" height="2" fill={green}/>
+      <rect x="4"  y="8"  width="2" height="2" fill={green}/>
+      <rect x="6"  y="10" width="2" height="2" fill={green}/>
+      <rect x="8"  y="12" width="2" height="2" fill={green}/>
+
+      {/* ── / ── */}
+      <rect x="14" y="4"  width="2" height="2" fill={green}/>
+      <rect x="12" y="6"  width="2" height="2" fill={green}/>
+      <rect x="12" y="8"  width="2" height="2" fill={green}/>
+      <rect x="10" y="10" width="2" height="2" fill={green}/>
+      <rect x="10" y="12" width="2" height="2" fill={green}/>
+
+      {/* ── > ── */}
+      <rect x="16" y="4"  width="2" height="2" fill={green}/>
+      <rect x="18" y="6"  width="2" height="2" fill={green}/>
+      <rect x="20" y="8"  width="2" height="2" fill={green}/>
+      <rect x="18" y="10" width="2" height="2" fill={green}/>
+      <rect x="16" y="12" width="2" height="2" fill={green}/>
+
+      {/* ── cursor ── */}
+      <rect x="4"  y="14" width="4"  height="2" fill={green}/>
+
+      {/* ── keyboard base ── */}
+      <rect x="2"  y="20" width="24" height="2" fill={base}/>
+      <rect x="6"  y="22" width="16" height="2" fill={base}/>
     </svg>
   );
 }
@@ -122,7 +145,7 @@ export function SidebarNav() {
       <Link href="/" className="sidebar-logo-row" aria-label="Home">
         {/* Collapsed mark */}
         <span className="sidebar-mark">
-          <CollapsedMark isDark={isDark} />
+          <CollapsedMark />
         </span>
         {/* Full logo (fades in when expanded) */}
         <span className="sidebar-wordmark">
