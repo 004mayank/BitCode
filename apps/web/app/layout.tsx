@@ -24,7 +24,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <div className="app-shell">
           <SidebarNav />
           <div className="main-content">
-            {/* Top bar */}
+            {/* Top bar — same 48 px height as sidebar logo row */}
             <div style={{
               height: 48,
               borderBottom: "1px solid var(--border)",
@@ -35,6 +35,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
               gap: 10,
               background: "var(--surface)",
               flexShrink: 0,
+              position: "sticky",
+              top: 0,
+              zIndex: 10,
             }}>
               <ThemeToggle />
             </div>
