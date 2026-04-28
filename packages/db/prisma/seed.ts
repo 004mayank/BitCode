@@ -769,6 +769,470 @@ HINTS
         correctness: "Matrix enforced; tests comprehensive; least privilege.",
         aiUsage: "Prompts include role matrix + edge cases; iterates with tests."
       }
+    },
+
+    // ── AI Architecture Challenges (Claude Certified Architect domains) ──────
+
+    {
+      slug: "agentic-loop-stop-reason",
+      title: "Build a production agentic loop with stop_reason handling",
+      description: "Implement a robust agentic loop that correctly handles tool_use vs end_turn and avoids common anti-patterns.",
+      difficulty: 4,
+      tags: ["ai", "agentic", "sdk", "backend"],
+      prompt: `Implement a production-grade agentic loop that drives an autonomous assistant to completion.
+
+CONTEXT
+You are building a task-execution agent using the Claude API. The agent receives a natural-language goal (e.g. "research the top 5 LLM benchmarks and summarise findings") and must autonomously call tools, process results, and reason until it reaches a final answer. Most broken agents fail because they either loop forever or terminate too early.
+
+REQUIREMENTS
+• Implement the full agentic loop:
+  1. Send a request to Claude with tools defined
+  2. Inspect stop_reason: if "tool_use", execute all requested tools and append results to conversation history
+  3. If "end_turn", terminate and return the final assistant message
+  4. Never terminate based on text content of the response — only stop_reason
+• Tools to implement (mocked): web_search(query), read_url(url), summarise(text)
+• Append tool results correctly: each tool_result must be a user message with role "user" containing a content array of type "tool_result" objects, keyed by tool_use_id
+• Hard max iterations (configurable, default 20) as a safety net — but this should NOT be the primary stopping mechanism
+• Structured trace log: emit JSON per iteration { iteration, tool_calls[], stop_reason, token_count }
+• Write tests for: end_turn termination, tool_use loop continuation, max iteration safety cutoff, malformed tool input handling
+
+ACCEPTANCE CRITERIA
+✓ Agent completes a mock research task end-to-end without premature termination
+✓ Tool results are appended with correct structure (role, content type, tool_use_id)
+✓ Loop terminates only when stop_reason === "end_turn"
+✓ Max iterations fires as last-resort safety, not as the primary stop
+✓ Trace log is human-readable and includes every tool call + result
+✓ Tests cover all 4 stop conditions
+
+HINTS
+- The most common bug: forgetting to append the assistant's tool_use response before appending tool_results — conversation history must stay in strict alternating order.
+- Parse stop_reason from the API response top-level, not from within message content.
+- Anti-pattern to avoid: checking if assistant message contains "I have completed" as a termination signal.
+- Use Anthropic SDK's streaming or non-streaming API — document your choice and why.`,
+      rubric: {
+        correctness: "Loop terminates correctly on stop_reason; tool results properly structured; trace complete.",
+        aiUsage: "Uses AI to debug loop ordering issues; iterates on test failures; documents stop_reason tradeoffs."
+      }
+    },
+
+    {
+      slug: "multi-agent-coordinator-subagent",
+      title: "Implement a coordinator + subagent research pipeline",
+      description: "Build a hub-and-spoke multi-agent system where a coordinator delegates to specialised subagents and aggregates results.",
+      difficulty: 5,
+      tags: ["ai", "agentic", "sdk", "architecture"],
+      prompt: `Design and build a multi-agent research system with a coordinator and three specialised subagents.
+
+CONTEXT
+You need to research complex topics and produce comprehensive, cited reports. A single agent does this poorly — it either runs out of context or produces shallow coverage. The solution: a coordinator agent that delegates to specialised subagents (search, analysis, synthesis) and assembles the final report.
+
+SYSTEM ARCHITECTURE
+• Coordinator: receives the research goal, decomposes into subtopics, spawns subagents, aggregates results, re-delegates if coverage is incomplete
+• Search subagent: given a subtopic, finds and retrieves relevant sources (web_search + read_url tools only)
+• Analysis subagent: given retrieved documents, extracts key claims with source attribution (read/summarise tools only)
+• Synthesis subagent: given analysis outputs from all subagents, produces a final cited report
+
+REQUIREMENTS
+• Subagents must NOT inherit coordinator context — each subagent receives only an explicit prompt with the data it needs
+• Pass structured data between agents (JSON with source_url, excerpt, relevance_score) to preserve attribution
+• Coordinator evaluates synthesis output for coverage gaps and re-delegates with targeted queries if needed (at least one refinement loop)
+• All inter-subagent communication routes through the coordinator (no direct subagent-to-subagent calls)
+• Spawn search + analysis subagents in parallel for independent subtopics (emit multiple tool calls in one coordinator turn)
+• Error handling: if a subagent fails, coordinator receives structured error context (failure_type, attempted_query, partial_results) and decides whether to retry or proceed with available data
+• Integration test: run a full research task on "Impact of transformer architectures on NLP benchmarks" — produce a ≥800-word cited report
+
+ACCEPTANCE CRITERIA
+✓ 3 specialised subagents with distinct, non-overlapping tool sets
+✓ Context passing is explicit — no shared memory between subagents
+✓ Coordinator re-delegates at least once after evaluating synthesis output
+✓ Final report has ≥5 source citations with source URL + excerpt
+✓ Parallel subagent spawning demonstrated (multiple Task calls in one turn)
+✓ Structured error propagation tested (mock a subagent timeout)
+
+HINTS
+- Overly narrow task decomposition is the #1 coordinator failure — make sure you cover all topic dimensions, not just the obvious ones.
+- When passing context to the synthesis subagent, include both the raw findings AND source metadata (URL, date, page) — never let source attribution be lost in a summarisation step.
+- The coordinator's system prompt should specify research goals and quality criteria, NOT step-by-step procedural instructions — subagents need room to adapt.
+- For the refinement loop: have the coordinator score synthesis coverage 1-10 per subtopic and re-delegate anything scoring below 7.`,
+      rubric: {
+        correctness: "Hub-and-spoke architecture correct; context passing explicit; refinement loop works; citations preserved.",
+        aiUsage: "Prompts specify quality criteria not procedures; iterates on coverage gaps; tests error propagation."
+      }
+    },
+
+    {
+      slug: "mcp-tool-interface-design",
+      title: "Design MCP tool interfaces with structured error handling",
+      description: "Create well-described MCP tools with clear boundaries, structured error responses, and correct isError semantics.",
+      difficulty: 3,
+      tags: ["ai", "mcp", "backend", "api"],
+      prompt: `Design and implement a set of MCP tools that an AI agent can reliably select and recover from errors on.
+
+CONTEXT
+You are building an MCP server for a customer support agent. The agent has access to 5 tools: get_customer, lookup_order, process_refund, check_policy, escalate_to_human. Agents fail when tool descriptions are ambiguous, when errors are swallowed silently, or when tools overlap in purpose.
+
+REQUIREMENTS
+• Implement all 5 tools as an MCP server (any language/SDK)
+• Tool descriptions must include: purpose, expected input format, example query, edge cases, and explicit "use this instead of X when..." guidance
+• Structured error responses using MCP isError flag with metadata:
+  - errorCategory: "transient" | "validation" | "business" | "permission"
+  - isRetryable: boolean
+  - humanMessage: string (customer-friendly, not a stack trace)
+  - attemptedOperation: string
+• Distinguish between access failures (timeout → isRetryable: true) vs valid empty results (no order found → isError: false, empty result)
+• Implement tool_choice logic: demonstrate forced sequencing (get_customer must succeed before process_refund is callable — enforce this as a prerequisite, not prompt guidance)
+• Write a test for each error category, verifying the agent can make correct recovery decisions based on error metadata
+
+ACCEPTANCE CRITERIA
+✓ All 5 tools implemented with full descriptions (≥100 words each)
+✓ Every error returns structured metadata — no bare error strings
+✓ Agent test: given a mock conversation, agent correctly retries transient errors, skips retrying validation errors, and escalates on business rule violations
+✓ get_customer prerequisite programmatically enforced before process_refund
+✓ Empty-result vs access-failure clearly differentiated in response shape
+
+HINTS
+- Minimal tool descriptions are the single biggest cause of agent tool misselection. The description IS the interface contract.
+- isRetryable: false + a clear humanMessage gives the agent everything it needs to communicate the situation to the customer and move on.
+- Two tools with near-identical descriptions (e.g. "retrieves customer info" / "retrieves order info") WILL be confused — add explicit "NOT for orders" / "NOT for customers" boundary statements.
+- Test tool selection by giving the agent an ambiguous query ("check on my recent purchase") — a well-described tool set will route it correctly every time.`,
+      rubric: {
+        correctness: "Error categories correct; prerequisite enforced programmatically; tool descriptions unambiguous.",
+        aiUsage: "Uses AI to draft descriptions, then tests against ambiguous queries and iterates on failures."
+      }
+    },
+
+    {
+      slug: "agent-sdk-hooks-enforcement",
+      title: "Implement Agent SDK hooks for business rule enforcement",
+      description: "Use PostToolUse and PreToolCall hooks to intercept tool calls, normalise data, and enforce policy without relying on prompt instructions.",
+      difficulty: 4,
+      tags: ["ai", "agentic", "sdk", "backend"],
+      prompt: `Implement programmatic business rule enforcement using Agent SDK hooks — not prompt instructions.
+
+CONTEXT
+Your customer support agent processes refunds. Without enforcement, agents occasionally bypass business rules when prompt instructions are ignored (which happens at a non-zero rate). You need deterministic compliance, which means hooks, not prompts.
+
+REQUIREMENTS
+• Implement two hook types using the Claude Agent SDK:
+
+  PreToolCall hook — intercepts outgoing tool calls BEFORE execution:
+  - Block any process_refund call where amount > $500 → redirect to escalate_to_human with structured context (customer_id, refund_amount, reason)
+  - Block any tool call if get_customer has not yet returned a verified customer ID in this session
+
+  PostToolUse hook — intercepts tool results BEFORE the model processes them:
+  - Normalise date formats: convert Unix timestamps and MM/DD/YYYY strings to ISO 8601
+  - Normalise status codes: convert numeric codes (1, 2, 3) to human-readable strings ("active", "suspended", "closed")
+  - Strip sensitive fields (SSN, raw_credit_card) from tool results before they enter the model's context
+
+• Write a test suite proving:
+  - A $600 refund is blocked and escalated (even if the prompt says to process it)
+  - A refund attempted before get_customer is blocked with a clear error
+  - Timestamps are normalised correctly across 3 input formats
+  - Sensitive fields are stripped from all tool results
+
+ACCEPTANCE CRITERIA
+✓ PreToolCall hook blocks policy violations deterministically (not probabilistically)
+✓ PostToolUse hook normalises heterogeneous date/status formats
+✓ Sensitive field stripping tested with mock PII data
+✓ Hooks are composable — adding a new rule doesn't require modifying existing hooks
+✓ When a tool call is blocked, the coordinator receives a structured explanation, not a silent failure
+
+HINTS
+- The key insight: prompt instructions have a non-zero failure rate for critical business rules. Hooks provide deterministic guarantees.
+- A blocked tool call should redirect to a safe alternative (escalate_to_human) with all context the human needs — customer ID, what was attempted, why it was blocked.
+- For composable hooks: implement each rule as a separate hook function and chain them, rather than one monolithic hook with nested ifs.
+- Test the edge case: what happens if the hook itself throws? The agent should receive a structured error, not crash.`,
+      rubric: {
+        correctness: "Hooks enforce rules deterministically; PII stripped; normalisation correct across all formats.",
+        aiUsage: "Uses AI to identify edge cases; iterates on hook composition; proves determinism with tests."
+      }
+    },
+
+    {
+      slug: "claude-code-cicd-integration",
+      title: "Integrate Claude Code into a CI/CD pipeline",
+      description: "Set up Claude Code for automated code review, test generation, and structured PR feedback in a CI environment.",
+      difficulty: 3,
+      tags: ["ai", "devops", "claude-code", "ci-cd"],
+      prompt: `Wire Claude Code into your CI/CD pipeline for automated, structured, actionable code reviews.
+
+CONTEXT
+Your team wants Claude Code to run on every pull request: reviewing for bugs and security issues, generating missing tests, and posting inline comments. The challenge: CI pipelines are non-interactive, need structured output for tooling, and reviews must not duplicate comments on re-runs.
+
+REQUIREMENTS
+• Non-interactive mode: use the -p flag to run Claude Code without hanging for user input
+• Structured output: use --output-format json with --json-schema to produce machine-parseable findings
+• Review schema (enforce via JSON schema):
+  {
+    findings: [{ file: string, line: number, severity: "error"|"warning"|"info", category: "bug"|"security"|"style", issue: string, suggestion: string }],
+    summary: string,
+    filesReviewed: number
+  }
+• Multi-pass architecture:
+  - Pass 1: per-file local analysis (one Claude invocation per changed file)
+  - Pass 2: cross-file integration pass examining data flow across all changed files
+  - Pass 3: independent review instance (fresh context) for the full diff — catches what self-review misses
+• Deduplication: when re-running on new commits, include prior review findings in context and instruct Claude to report only NEW or STILL-UNADDRESSED issues
+• CLAUDE.md: document review criteria, severity definitions, and which patterns to skip (local conventions, style nits)
+
+ACCEPTANCE CRITERIA
+✓ CI script runs with -p flag, exits non-zero on error findings
+✓ Output is valid JSON matching the schema on every run (test with 10 diverse diffs)
+✓ Multi-pass architecture implemented with at least 3 invocations per review
+✓ Deduplication tested: run on same PR twice, second run produces no duplicate comments
+✓ CLAUDE.md documents review criteria and false-positive categories to skip
+
+HINTS
+- Session context isolation matters: the Claude instance that generated code is less likely to catch its own mistakes. Always use a fresh instance for the final review pass.
+- False positives destroy developer trust fast. Use CLAUDE.md to explicitly tell Claude which patterns are intentional in your codebase.
+- For deduplication: include the previous findings JSON in the prompt with explicit instructions: "only report findings not present in the prior_findings array".
+- The -p flag is the entire difference between an agent that works in CI and one that hangs indefinitely waiting for input.`,
+      rubric: {
+        correctness: "Non-interactive mode works; schema valid; deduplication correct; multi-pass implemented.",
+        aiUsage: "Prompts include explicit criteria; iterates on false positive reduction; tests schema compliance."
+      }
+    },
+
+    {
+      slug: "structured-data-extraction-schema",
+      title: "Build a structured data extraction pipeline with schema validation",
+      description: "Extract structured JSON from unstructured documents using tool_use, JSON schemas, and retry-with-feedback loops.",
+      difficulty: 3,
+      tags: ["ai", "prompt-engineering", "backend", "data"],
+      prompt: `Build a production data extraction system that reliably pulls structured information from messy, varied documents.
+
+CONTEXT
+You're processing incoming vendor invoices in multiple formats (PDFs, scanned images described as text, HTML emails). Each needs to produce a validated JSON record. The naive approach (ask Claude to return JSON) produces syntax errors and hallucinated values. You need schema-enforced extraction with validation and retry.
+
+REQUIREMENTS
+• Use tool_use (not JSON mode) to guarantee schema-compliant output — define an extract_invoice tool with a JSON schema as its input parameters
+• Invoice extraction schema:
+  {
+    vendor_name: string,
+    invoice_number: string,
+    invoice_date: string,  // ISO 8601
+    line_items: [{ description: string, quantity: number, unit_price: number, total: number }],
+    subtotal: number,
+    tax: number | null,
+    total_due: number,
+    currency: string,      // ISO 4217
+    payment_terms: string | null
+  }
+• Required fields that may be absent: mark as nullable (not required) — never allow the model to fabricate values for missing fields
+• Semantic validation post-extraction: verify line_items[*].total == quantity * unit_price, and sum(line_items[*].total) ≈ subtotal
+• Retry-with-feedback: on validation failure, send a follow-up with (original document, failed extraction, specific validation error) and ask for correction — implement max 2 retries
+• few-shot examples: include 3 examples in the system prompt covering different document structures (inline citations, separate totals section, abbreviated vendor info)
+• Batch processing: process 20 invoices using the Message Batches API (50% cost saving) — use custom_id to correlate responses; resubmit only failed documents
+• Handle the case where required info genuinely doesn't exist vs. where it's present but wasn't extracted
+
+ACCEPTANCE CRITERIA
+✓ tool_use extraction produces 0 JSON syntax errors across 20 test invoices
+✓ Nullable fields never fabricated — confirmed with 5 invoices missing optional fields
+✓ Semantic validation catches line_item sum mismatches in test cases
+✓ Retry loop corrects format errors in ≥80% of cases on first retry
+✓ Batch processing tested: 20 invoices submitted, failed ones resubmitted by custom_id
+✓ 3 few-shot examples in system prompt with diverse document structures
+
+HINTS
+- tool_use eliminates JSON syntax errors but does NOT prevent semantic errors (quantities that don't multiply to totals). You still need post-extraction validation.
+- For nullable fields: the schema difference between "field is required but can be null" and "field may be absent" matters — use nullable: true and remove from required[] for absent fields.
+- Retry with error feedback: "The line_items[2].total (150) does not equal quantity (3) × unit_price (40) = 120. Please re-extract." is dramatically more effective than "try again".
+- Use tool_choice: "any" when you have multiple extraction schemas (invoices, receipts, contracts) and the document type is unknown.`,
+      rubric: {
+        correctness: "Schema enforced; semantic validation works; retry loop improves accuracy; batch correlates correctly.",
+        aiUsage: "Few-shot examples are well-chosen; iterates on validation failures; documents when retries are futile."
+      }
+    },
+
+    {
+      slug: "claude-md-monorepo-config",
+      title: "Configure CLAUDE.md hierarchy for a monorepo",
+      description: "Set up a layered CLAUDE.md configuration with path-specific rules, @imports, and .claude/rules/ for a multi-package monorepo.",
+      difficulty: 2,
+      tags: ["ai", "claude-code", "devops", "dx"],
+      prompt: `Design a maintainable Claude Code configuration for a monorepo with multiple packages and different conventions in each.
+
+CONTEXT
+Your monorepo has 4 packages: api/ (Node.js/Express, async/await error handling), web/ (React with hooks, functional components), packages/db/ (Prisma repository pattern), and packages/shared/ (pure TypeScript utilities). Test files (*.test.ts, *.test.tsx) are scattered throughout — not in a central tests/ directory. Different packages have different conventions, and the root CLAUDE.md is already 800 lines and hard to maintain.
+
+REQUIREMENTS
+• Implement the full CLAUDE.md hierarchy:
+  - Root CLAUDE.md: project-wide facts only (monorepo structure, package manager, shared tooling)
+  - Package-level CLAUDE.md for each of the 4 packages: package-specific conventions, imports, patterns
+  - .claude/rules/ directory: path-specific rule files with YAML frontmatter glob patterns
+
+• Path-specific rules (implement all 4):
+  - api/**/*.ts → async/await error handling, Express middleware conventions, no bare promise chains
+  - web/**/*.tsx → functional components only, hooks rules, no class components
+  - **/*.test.ts, **/*.test.tsx → testing conventions (describe/it structure, mock patterns, no skipped tests)
+  - packages/db/**/*.ts → Prisma repository pattern, transaction handling, no raw SQL
+
+• @import syntax: root CLAUDE.md should @import a shared-conventions.md for rules that apply everywhere (commit message format, TypeScript strict mode, import ordering)
+
+• Custom slash commands: create .claude/commands/review.md (runs the team review checklist) and .claude/commands/test-gen.md (generates tests for a file)
+
+• Prove it works: demonstrate that editing a *.test.tsx file loads the testing rules AND the React rules but NOT the API rules. Document this with /memory output.
+
+ACCEPTANCE CRITERIA
+✓ 4-level hierarchy implemented (root → package → directory → path rules)
+✓ Path-scoped rules load correctly based on file being edited — verified with /memory
+✓ @import resolves correctly — shared-conventions.md content appears in active context
+✓ 2 custom slash commands working and documented
+✓ Root CLAUDE.md is ≤50 lines — complexity distributed to appropriate scopes
+✓ A new developer can understand the full configuration from a README in .claude/
+
+HINTS
+- User-level (~/.claude/CLAUDE.md) is for personal preferences only — never put team conventions there, they won't be shared via version control.
+- The key advantage of .claude/rules/ path globs over directory-level CLAUDE.md files: a **/*.test.tsx pattern applies to test files regardless of which directory they're in. A directory CLAUDE.md only applies to that directory.
+- Use /memory to verify which files are loaded when editing a specific file — it's the ground truth for debugging hierarchy issues.
+- Skills (.claude/skills/) are for on-demand invocation; CLAUDE.md is for always-loaded standards. Don't put workflow instructions in CLAUDE.md.`,
+      rubric: {
+        correctness: "Hierarchy correct; path rules load only for matching files; @import resolves; commands work.",
+        aiUsage: "Uses /memory to verify configuration; iterates on glob patterns; documents hierarchy decisions."
+      }
+    },
+
+    {
+      slug: "prompt-engineering-few-shot",
+      title: "Eliminate false positives with few-shot prompt engineering",
+      description: "Use few-shot examples, explicit criteria, and feedback loops to reduce LLM false positive rates in a code review system.",
+      difficulty: 3,
+      tags: ["ai", "prompt-engineering", "evaluation", "ci-cd"],
+      prompt: `Systematically reduce false positives in an AI code review system using few-shot prompting and explicit criteria.
+
+CONTEXT
+Your AI code review system flags 40% of findings as false positives according to developers. The most complained-about categories: "style" issues that follow local conventions, "security" warnings about intentional patterns, and "performance" suggestions for code paths that never run hot. Developer trust is eroding.
+
+REQUIREMENTS
+• Audit phase: classify 50 historical findings into TP (true positive), FP (false positive), FN (false negative). Calculate precision and recall per category.
+
+• Explicit criteria rewrite: replace vague instructions ("check that comments are accurate", "flag security issues") with specific categorical rules:
+  - Bug: only flag when claimed behaviour PROVABLY contradicts code behaviour — not when it looks suspicious
+  - Security: only flag OWASP Top 10 and injection patterns — not general "could be better" observations
+  - Style: SKIP unless the project has an explicit linter rule for it documented in CLAUDE.md
+  - Performance: only flag hot paths (functions called >100x per request) — require profiler evidence
+
+• Few-shot examples: provide 3 examples for each category (12 total) showing:
+  - A clear TRUE positive with explanation
+  - A clear FALSE positive with explanation of why it was INCORRECTLY flagged
+  - An ambiguous case with reasoning for the correct decision
+
+• Feedback loop: add a detected_pattern field to each finding so you can track which code patterns generate the most dismissals
+
+• Before/after measurement: run the audit set through old prompt and new prompt — show precision, recall, F1 per category
+
+ACCEPTANCE CRITERIA
+✓ Audit of 50 findings with TP/FP/FN classification documented
+✓ 12 few-shot examples (3 per category) with explicit reasoning
+✓ Before/after precision measurement showing ≥15% improvement in at least 2 categories
+✓ detected_pattern field in output schema — used to identify top 3 FP-generating patterns
+✓ No category has precision below 70% after optimisation
+
+HINTS
+- The fastest win: temporarily disable your highest-FP category entirely. Restore developer trust first, then improve that category's prompt.
+- "Be conservative" and "only report high-confidence findings" are useless instructions — models can't calibrate confidence this way. Categorical rules ("only flag OWASP Top 10") are much more effective.
+- Few-shot examples should demonstrate ambiguous cases with explicit reasoning — not just clear-cut cases. The model already handles clear cases; you need examples for the edge cases it gets wrong.
+- Severity consistency: define severity criteria with concrete code examples ("a SQL concatenation in a public endpoint = critical; a hardcoded localhost URL = info") — vague severity levels produce inconsistent classification.`,
+      rubric: {
+        correctness: "Before/after measured; precision improves; few-shot examples are well-chosen for ambiguous cases.",
+        aiUsage: "Iterates on criteria based on FP patterns; uses audit data to drive prompt changes."
+      }
+    },
+
+    {
+      slug: "context-management-long-sessions",
+      title: "Manage context degradation in long agentic sessions",
+      description: "Implement scratchpad files, progressive summarisation, and subagent delegation to keep long-running agents coherent.",
+      difficulty: 4,
+      tags: ["ai", "agentic", "sdk", "architecture"],
+      prompt: `Fix context degradation in a long-running code exploration agent that loses coherence after ~30 tool calls.
+
+CONTEXT
+Your developer productivity agent explores large codebases (100k+ line repos). After ~30 tool calls, it starts giving generic answers ("typically this pattern is...") instead of specific answers about the actual codebase. Tool results have accumulated in context consuming tokens, and the model can no longer reliably reference findings from early in the session.
+
+THE PROBLEM
+• Tool results accumulate verbosely (full file contents, search results) and crowd out earlier findings
+• The "lost in the middle" effect: findings from early tool calls are unreliable in long context
+• Session crashes lose all progress — no recovery mechanism
+
+REQUIREMENTS
+• Scratchpad file strategy: agent maintains a FINDINGS.md file with structured key findings, updated after each significant discovery. For follow-up questions, agent reads FINDINGS.md first.
+
+• Context trimming: implement a PostToolUse hook that trims verbose tool results to only relevant fields before they enter context (e.g., for a file read of 500 lines, extract only the 3 relevant functions — not the full file)
+
+• Subagent delegation for verbose phases: instead of reading 20 files in the main session, spawn a subagent to explore a subsystem and return a structured summary (component_name, purpose, dependencies[], key_patterns[])
+
+• Progressive summarisation guard: before compacting, extract all numerical values, dates, function names, and class names into a "critical facts" block — preserve these exactly, don't let them be paraphrased
+
+• Crash recovery: agent exports state to agent-state.json at each checkpoint (files_explored[], findings_summary, next_steps[]). On resume, coordinator loads state and injects into agent prompt.
+
+• Test: demonstrate the agent answers correctly on a question about an early discovery (from iteration 5) when currently at iteration 35 — compare with vs without scratchpad.
+
+ACCEPTANCE CRITERIA
+✓ Scratchpad strategy tested — agent retrieves early findings correctly at iteration 35
+✓ Context trimming reduces token usage by ≥40% on a 20-file exploration task
+✓ Subagent returns structured summaries, not verbose exploration dumps
+✓ Critical facts block is preserved exactly through a /compact operation
+✓ Crash recovery tested: kill the agent at iteration 15, resume from state file, continue correctly
+
+HINTS
+- The scratchpad is not optional for long sessions — it's the only reliable way to reference findings that have been pushed out of the reliable context window by tool results.
+- "Lost in the middle" is real and well-documented: put key findings summaries at the BEGINNING of long aggregated inputs, not at the end.
+- When trimming tool results in PostToolUse: the hook should know the query that triggered the tool call and extract only fields relevant to that query — not a fixed set of fields.
+- For crash recovery, the state file should be written atomically (write to temp, rename) to avoid corrupted state from mid-write crashes.`,
+      rubric: {
+        correctness: "Scratchpad works; trimming reduces tokens; subagent summaries are structured; recovery works.",
+        aiUsage: "Identifies which tool results are verbose; iterates on trim strategies; proves with before/after token counts."
+      }
+    },
+
+    {
+      slug: "human-escalation-calibration",
+      title: "Design a calibrated human escalation system",
+      description: "Build an escalation decision system using explicit criteria and few-shot examples — not sentiment or self-reported confidence.",
+      difficulty: 3,
+      tags: ["ai", "agentic", "prompt-engineering", "product"],
+      prompt: `Design a reliable escalation system for a customer support agent that escalates correctly without over-escalating or under-escalating.
+
+CONTEXT
+Your support agent escalates 70% of cases to humans, far above the 20% target. Agents over-escalate because they use sentiment and self-reported confidence as proxies for complexity — both are unreliable. Meanwhile, it sometimes handles cases that clearly require human judgment (policy exceptions, fraud disputes). Developer trust in the escalation logic is low.
+
+REQUIREMENTS
+• Explicit escalation criteria (implement all, do NOT use sentiment or confidence scores):
+  - ALWAYS escalate: customer explicitly and unambiguously requests a human (not just expressing frustration)
+  - ALWAYS escalate: the case requires a policy exception or the policy is silent/ambiguous on the situation
+  - ALWAYS escalate: agent cannot make meaningful progress after 2 retry attempts
+  - NEVER escalate based on: negative customer sentiment, self-reported low confidence, or case "seeming complex"
+  - OFFER to resolve (don't immediately escalate): customer expresses frustration but the issue IS within agent capability — attempt resolution once, escalate only if customer reiterates
+
+• Few-shot examples (8 required):
+  - 3 clear escalate cases with reasoning
+  - 3 clear resolve cases with reasoning
+  - 2 ambiguous cases (customer is frustrated but issue is solvable) — show the correct "offer to resolve" path
+
+• Ambiguity resolution: when tool results return multiple customer matches, always ask for additional identifiers — never select based on heuristics
+
+• Structured handoff: when escalating, compile { customer_id, order_id, root_cause, what_was_attempted, recommended_action, customer_sentiment_note } — the human agent has no access to the conversation transcript
+
+• Before/after measurement: audit 50 historical escalation decisions with your new criteria. Calculate escalation rate, false escalation rate (cases that could have been resolved), false resolution rate (cases that needed human judgment)
+
+ACCEPTANCE CRITERIA
+✓ 8 few-shot examples implemented with explicit reasoning chains
+✓ Sentiment-based escalation removed — tested with 10 frustrated-but-resolvable cases
+✓ Policy gap escalation works — tested with 5 cases where policy is ambiguous
+✓ Structured handoff JSON produced for every escalation
+✓ Audit of 50 historical cases shows escalation rate dropped from 70% toward target 20%
+✓ Zero cases of "selected by heuristic" from ambiguous customer matches
+
+HINTS
+- The most common mistake: treating "customer seems unhappy" as an escalation signal. Unhappiness is a communication signal, not a complexity signal. Explicit human request ("I want to speak to a human") IS the signal.
+- "Offer to resolve" is the correct middle path: "I understand your frustration. I can resolve your return right now — would you like me to process it, or would you prefer to speak with a team member?"
+- Self-reported confidence scores (1-10 before each response) sound appealing but the agent is already incorrectly confident on the hard cases — the score doesn't correlate with actual accuracy.
+- Structured handoff is not optional: if the human agent has to re-read the whole conversation to understand the situation, you've wasted both the agent's and the human's time.`,
+      rubric: {
+        correctness: "Escalation logic doesn't use sentiment; few-shot examples cover ambiguous cases; handoff is complete.",
+        aiUsage: "Iterates on escalation rate measurement; uses audit data to refine criteria; tests edge cases explicitly."
+      }
     }
   ] as const;
 
@@ -806,7 +1270,62 @@ HINTS
 
   // Seed a few OPEN bounties so the feed is alive.
   const openBountySpecs = [
-    // --- AI bounties ---
+    // --- AI Architecture bounties (Claude Certified Architect domains) ---
+    {
+      slug: "agentic-loop-stop-reason",
+      title: "AI: Agentic Loop with stop_reason (1400 pts)",
+      description: "Implement a production agentic loop with correct stop_reason handling, tool result appending, and structured trace logs.",
+      rewardPts: 1400
+    },
+    {
+      slug: "multi-agent-coordinator-subagent",
+      title: "AI: Multi-Agent Research Pipeline (2500 pts)",
+      description: "Build a coordinator + 3 specialised subagents with explicit context passing, parallel spawning, and refinement loops.",
+      rewardPts: 2500
+    },
+    {
+      slug: "mcp-tool-interface-design",
+      title: "AI: MCP Tool Interface Design (1300 pts)",
+      description: "Design 5 MCP tools with unambiguous descriptions, structured error categories, and programmatic prerequisites.",
+      rewardPts: 1300
+    },
+    {
+      slug: "agent-sdk-hooks-enforcement",
+      title: "AI: Agent Hooks for Business Rules (1600 pts)",
+      description: "Implement PreToolCall and PostToolUse hooks to enforce policies deterministically and normalise data.",
+      rewardPts: 1600
+    },
+    {
+      slug: "claude-code-cicd-integration",
+      title: "AI: Claude Code in CI/CD (1200 pts)",
+      description: "Wire Claude Code into CI with -p flag, JSON schema output, multi-pass reviews, and deduplication.",
+      rewardPts: 1200
+    },
+    {
+      slug: "structured-data-extraction-schema",
+      title: "AI: Structured Extraction Pipeline (1100 pts)",
+      description: "Extract structured JSON from invoices using tool_use schemas, semantic validation, and retry-with-feedback.",
+      rewardPts: 1100
+    },
+    {
+      slug: "prompt-engineering-few-shot",
+      title: "AI: Eliminate False Positives (900 pts)",
+      description: "Reduce code review false positives ≥15% using few-shot examples and explicit categorical criteria.",
+      rewardPts: 900
+    },
+    {
+      slug: "context-management-long-sessions",
+      title: "AI: Context Degradation Fix (1800 pts)",
+      description: "Implement scratchpad files, context trimming hooks, and crash recovery for long agentic sessions.",
+      rewardPts: 1800
+    },
+    {
+      slug: "human-escalation-calibration",
+      title: "AI: Escalation Calibration (1000 pts)",
+      description: "Build a criteria-driven escalation system — no sentiment, no confidence scores, just explicit rules + few-shot.",
+      rewardPts: 1000
+    },
+    // --- General AI bounties ---
     {
       slug: "rag-docs-grounded-answers",
       title: "AI: Grounded RAG with citations (1500 pts)",
