@@ -157,7 +157,7 @@ export default async function HomePage() {
         <div style={{ position: "absolute", bottom: "5%", right: "-5%", width: 500, height: 500, borderRadius: "50%", background: "radial-gradient(circle, rgba(139,92,246,0.07) 0%, transparent 70%)", pointerEvents: "none" }} />
         <div style={{ position: "absolute", top: "30%", right: "20%", width: 400, height: 400, borderRadius: "50%", background: "radial-gradient(circle, rgba(0,220,180,0.06) 0%, transparent 70%)", pointerEvents: "none" }} />
 
-        <div style={{ maxWidth: 1180, margin: "0 auto", padding: "80px 28px", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 60, alignItems: "center", width: "100%" }}>
+        <div style={{ padding: "80px 6vw", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 60, alignItems: "center", width: "100%" }}>
 
           {/* Left: copy */}
           <div>
@@ -251,7 +251,7 @@ export default async function HomePage() {
       </div>
 
       {/* ══ FEATURES ═══════════════════════════════════════════════════════════ */}
-      <section style={{ padding: "100px 28px", maxWidth: 1180, margin: "0 auto" }}>
+      <section style={{ padding: "100px 6vw" }}>
         <div style={{ textAlign: "center", marginBottom: 64 }}>
           <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: "#8b5cf6", marginBottom: 16 }}>
             Why BitCode
@@ -288,8 +288,8 @@ export default async function HomePage() {
       </section>
 
       {/* ══ HOW IT WORKS ═══════════════════════════════════════════════════════ */}
-      <section style={{ padding: "80px 28px 100px", background: "rgba(255,255,255,0.015)", borderTop: "1px solid rgba(255,255,255,0.05)", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
-        <div style={{ maxWidth: 1180, margin: "0 auto" }}>
+      <section style={{ padding: "80px 6vw 100px", background: "rgba(255,255,255,0.015)", borderTop: "1px solid rgba(255,255,255,0.05)", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+        <div>
           <div style={{ textAlign: "center", marginBottom: 64 }}>
             <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: "#3b82f6", marginBottom: 16 }}>
               How it works
@@ -326,7 +326,7 @@ export default async function HomePage() {
       </section>
 
       {/* ══ FINAL CTA ══════════════════════════════════════════════════════════ */}
-      <section style={{ padding: "120px 28px", textAlign: "center", position: "relative", overflow: "hidden" }}>
+      <section style={{ padding: "120px 6vw", textAlign: "center", position: "relative", overflow: "hidden" }}>
         <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%)", width: 700, height: 400, borderRadius: "50%", background: "radial-gradient(circle, rgba(59,130,246,0.07) 0%, transparent 70%)", pointerEvents: "none" }} />
         <div style={{ maxWidth: 600, margin: "0 auto", position: "relative" }}>
           <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: "#10b981", marginBottom: 20 }}>
