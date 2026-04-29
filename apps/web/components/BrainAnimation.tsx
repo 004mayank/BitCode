@@ -4,8 +4,12 @@ import { useEffect, useRef } from "react";
 const CHARS = "$$SBZhnjkwm01ABCDEFabcdef@#&*{}[]<>|+-$$";
 
 // Display size is half the canvas pixel size (2× retina-style render)
-// so ring lines are crisp and each ridge is ~2 visible characters wide.
 const DISPLAY_SCALE = 0.5;
+
+// Number of visible ridges across the fingerprint
+const N_RINGS = 18;
+// Fraction of each ridge cycle that is "lit" (vs gap)
+const RIDGE_FRACTION = 0.52;
 
 export function BrainAnimation({ size = 580 }: { size?: number }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -17,67 +21,75 @@ export function BrainAnimation({ size = 580 }: { size?: number }) {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    // Render 2× larger than displayed — gives crisp, dense rings
     const dispW = Math.round(size * 0.82);
     const dispH = size;
-    const W = dispW  / DISPLAY_SCALE;   // actual canvas pixel width
-    const H = dispH  / DISPLAY_SCALE;   // actual canvas pixel height
+    const W = dispW / DISPLAY_SCALE;
+    const H = dispH / DISPLAY_SCALE;
     canvas.width  = W;
     canvas.height = H;
 
-    // Character cell at 2× — displays as ~5×7 px on screen
     const CW = 10;
     const CH = 15;
     const COLS = Math.floor(W / CW);
     const ROWS = Math.floor(H / CH);
 
-    const cx    = W / 2;
-    const cy    = H * 0.50;
+    const cx = W / 2;
+    const cy = H * 0.50;
+    // Semi-axes of the clipping ellipse
     const MAX_RX = W * 0.455;
     const MAX_RY = H * 0.468;
 
-    // Ring geometry — 16 rings, each ridge ~2 char cells wide
-    const RING_PITCH = Math.round(MAX_RX / 15);   // ≈ px per cycle
-    const RIDGE_W    = Math.round(RING_PITCH * 0.64);  // 64 % ridge, 36 % gap
-
-    // ──────────────────────────────────────────────────────────────
-    // fingerprintDist — ellipse-normalised radial distance with two
-    // organic perturbations:
-    //   1. angular warp  → outer ridges look natural / irregular
-    //   2. loop topology → inner ridges form a teardrop / loop core
-    //      (inner rings are offset upward relative to outer rings)
-    // ──────────────────────────────────────────────────────────────
-    function fingerprintDist(px: number, py: number): number {
+    // ─────────────────────────────────────────────────────────────────────
+    // fingerprintRidge — uses the classic potential-flow "doublet" stream
+    // function to generate authentic fingerprint loop topology.
+    //
+    //   ψ(x, y) = ny * (1 + a / r²)
+    //
+    //   where  nx, ny  are ellipse-normalised coordinates
+    //          r²      = nx² + ny²
+    //          a       = doublet strength  (controls loop size)
+    //
+    // Level-set geometry:
+    //   |ψ| < 2√a  →  closed loops (fingerprint core / delta)
+    //   |ψ| ≥ 2√a  →  open arches (outer ridges flowing around the core)
+    //
+    // We map ψ → ring index in [0, N_RINGS] so that the ridge/gap
+    // pattern repeats smoothly across the whole fingerprint.
+    // ─────────────────────────────────────────────────────────────────────
+    function fingerprintRing(px: number, py: number): number {
       const dx = px - cx;
       const dy = py - cy;
 
+      // Clip to ellipse
       if ((dx / MAX_RX) ** 2 + (dy / MAX_RY) ** 2 > 1) return -1;
 
-      const eDist = Math.sqrt(dx * dx + (dy * MAX_RX / MAX_RY) ** 2);
-      const normR  = eDist / MAX_RX;           // 0 = centre, 1 = edge
-      const theta  = Math.atan2(dy, dx);
+      // Normalise so the doublet lives in a unit circle
+      const nx = dx / MAX_RX;
+      const ny = dy / MAX_RY;
+      const r2 = nx * nx + ny * ny;
 
-      // Organic ridge-flow warp
-      const flowWarp =
-        Math.sin(theta * 2) * 2.8 +
-        Math.cos(theta * 3) * 1.6;
+      // Doublet strength — tuned so the loop core spans ~25 % of radius
+      const a = 0.09;
 
-      // Loop-core: inner rings are pulled upward (toward theta = -π/2)
-      // sin(theta) is +1 at bottom, –1 at top; we SUBTRACT at top so inner
-      // rings reach higher, forming the classic teardrop loop.
-      const loopStrength = RING_PITCH * 0.65;
-      const loopWarp = -Math.sin(theta) * Math.exp(-normR * 1.6) * loopStrength;
+      // Stream function value
+      const psi = ny * (1.0 + a / Math.max(r2, 0.003));
 
-      return eDist + flowWarp + loopWarp;
+      // ψ ranges roughly from -(1 + a/~0) to +(1 + a/~0).
+      // We clamp to [-MAX_PSI, MAX_PSI] then map to [0, N_RINGS].
+      const MAX_PSI = 1.22;
+      const clamped = Math.max(-MAX_PSI, Math.min(MAX_PSI, psi));
+      // Map [-MAX_PSI, MAX_PSI] → [0, N_RINGS]
+      return ((clamped + MAX_PSI) / (2 * MAX_PSI)) * N_RINGS;
     }
 
     function isOnRidge(col: number, row: number): boolean {
-      const d = fingerprintDist((col + 0.5) * CW, (row + 0.5) * CH);
-      if (d < 0) return false;
-      return d % RING_PITCH < RIDGE_W;
+      const ring = fingerprintRing((col + 0.5) * CW, (row + 0.5) * CH);
+      if (ring < 0) return false;
+      // fractional part determines ridge vs gap
+      return (ring % 1) < RIDGE_FRACTION;
     }
 
-    /* ── Character grid — very high base alpha → solid, bright ridges ── */
+    /* ── Character grid ── */
     const grid = Array.from({ length: COLS * ROWS }, () => ({
       char:  CHARS[Math.floor(Math.random() * CHARS.length)],
       alpha: 0.78 + Math.random() * 0.22,
@@ -86,14 +98,13 @@ export function BrainAnimation({ size = 580 }: { size?: number }) {
     }));
 
     let t = 0, raf = 0;
-    const HOVER_R = 120;  // in canvas pixels (= 60 display px)
+    const HOVER_R = 120;  // canvas pixels (= 60 display px)
 
     const onMove = (e: MouseEvent) => {
       const r = canvas.getBoundingClientRect();
-      // Scale from display CSS coords → canvas pixel coords
       mouseRef.current = {
-        x: (e.clientX - r.left)  * (W / r.width),
-        y: (e.clientY - r.top)   * (H / r.height),
+        x: (e.clientX - r.left) * (W / r.width),
+        y: (e.clientY - r.top)  * (H / r.height),
       };
     };
     const onLeave = () => { mouseRef.current = null; };
@@ -117,11 +128,9 @@ export function BrainAnimation({ size = 580 }: { size?: number }) {
             if (Math.random() < 0.04) cell.alpha = 0.78 + Math.random() * 0.22;
           }
 
-          // Minimal pulse variance — ridges stay uniformly bright
           const pulse = 0.93 + 0.07 * Math.sin(t * 1.1 + cell.phase);
           let a = Math.min(1, cell.alpha * pulse);
 
-          // Cursor patch: smooth quadratic fade
           if (mouse) {
             const px = (col + 0.5) * CW;
             const py = (row + 0.5) * CH;
@@ -149,7 +158,6 @@ export function BrainAnimation({ size = 580 }: { size?: number }) {
     };
   }, [size]);
 
-  // Canvas pixel size is 2× the display size
   return (
     <canvas
       ref={canvasRef}
