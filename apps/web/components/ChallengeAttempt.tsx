@@ -11,18 +11,18 @@ const MonacoEditor = dynamic(() => import("@monaco-editor/react"), { ssr: false 
 type Lang = { id: string; label: string; icon: string; ext: string; runnable: boolean; starter: string };
 
 const LANGUAGES: Lang[] = [
-  { id: "python",     label: "Python",     icon: "🐍", ext: "py",   runnable: true,  starter: "# Python\n\nprint('Hello, BitCode!')\n" },
-  { id: "javascript", label: "JavaScript", icon: "🟨", ext: "js",   runnable: false, starter: "// JavaScript\n\nconsole.log('Hello, BitCode!');\n" },
-  { id: "typescript", label: "TypeScript", icon: "🔷", ext: "ts",   runnable: false, starter: "// TypeScript\n\nconst greet = (name: string): string => `Hello, ${name}!`;\nconsole.log(greet('BitCode'));\n" },
-  { id: "go",         label: "Go",         icon: "🐹", ext: "go",   runnable: false, starter: "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tfmt.Println(\"Hello, BitCode!\")\n}\n" },
-  { id: "rust",       label: "Rust",       icon: "🦀", ext: "rs",   runnable: false, starter: "fn main() {\n    println!(\"Hello, BitCode!\");\n}\n" },
-  { id: "java",       label: "Java",       icon: "☕", ext: "java", runnable: false, starter: "public class Main {\n    public static void main(String[] args) {\n        System.out.println(\"Hello, BitCode!\");\n    }\n}\n" },
-  { id: "cpp",        label: "C++",        icon: "⚙️", ext: "cpp",  runnable: false, starter: "#include <iostream>\n\nint main() {\n    std::cout << \"Hello, BitCode!\" << std::endl;\n    return 0;\n}\n" },
-  { id: "csharp",     label: "C#",         icon: "🔵", ext: "cs",   runnable: false, starter: "using System;\n\nclass Program {\n    static void Main() {\n        Console.WriteLine(\"Hello, BitCode!\");\n    }\n}\n" },
-  { id: "ruby",       label: "Ruby",       icon: "💎", ext: "rb",   runnable: false, starter: "# Ruby\n\nputs 'Hello, BitCode!'\n" },
-  { id: "php",        label: "PHP",        icon: "🐘", ext: "php",  runnable: false, starter: "<?php\n\necho 'Hello, BitCode!';\n" },
-  { id: "shell",      label: "Bash",       icon: "🖥",  ext: "sh",   runnable: false, starter: "#!/bin/bash\n\necho \"Hello, BitCode!\"\n" },
-  { id: "sql",        label: "SQL",        icon: "🗄",  ext: "sql",  runnable: false, starter: "-- SQL\n\nSELECT 'Hello, BitCode!' AS greeting;\n" },
+  { id: "python",     label: "Python",     icon: "🐍", ext: "py",   runnable: true, starter: "# Python\n\nprint('Hello, BitCode!')\n" },
+  { id: "javascript", label: "JavaScript", icon: "🟨", ext: "js",   runnable: true, starter: "// JavaScript\n\nconsole.log('Hello, BitCode!');\n" },
+  { id: "typescript", label: "TypeScript", icon: "🔷", ext: "ts",   runnable: true, starter: "// TypeScript\n\nconst greet = (name: string): string => `Hello, ${name}!`;\nconsole.log(greet('BitCode'));\n" },
+  { id: "go",         label: "Go",         icon: "🐹", ext: "go",   runnable: true, starter: "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tfmt.Println(\"Hello, BitCode!\")\n}\n" },
+  { id: "rust",       label: "Rust",       icon: "🦀", ext: "rs",   runnable: true, starter: "fn main() {\n    println!(\"Hello, BitCode!\");\n}\n" },
+  { id: "java",       label: "Java",       icon: "☕", ext: "java", runnable: true, starter: "public class Main {\n    public static void main(String[] args) {\n        System.out.println(\"Hello, BitCode!\");\n    }\n}\n" },
+  { id: "cpp",        label: "C++",        icon: "⚙️", ext: "cpp",  runnable: true, starter: "#include <iostream>\n\nint main() {\n    std::cout << \"Hello, BitCode!\" << std::endl;\n    return 0;\n}\n" },
+  { id: "csharp",     label: "C#",         icon: "🔵", ext: "cs",   runnable: true, starter: "using System;\n\nclass Program {\n    static void Main() {\n        Console.WriteLine(\"Hello, BitCode!\");\n    }\n}\n" },
+  { id: "ruby",       label: "Ruby",       icon: "💎", ext: "rb",   runnable: true, starter: "# Ruby\n\nputs 'Hello, BitCode!'\n" },
+  { id: "php",        label: "PHP",        icon: "🐘", ext: "php",  runnable: true, starter: "<?php\n\necho 'Hello, BitCode!';\n" },
+  { id: "shell",      label: "Bash",       icon: "🖥",  ext: "sh",   runnable: true, starter: "#!/bin/bash\n\necho \"Hello, BitCode!\"\n" },
+  { id: "sql",        label: "SQL",        icon: "🗄",  ext: "sql",  runnable: true, starter: "-- SQL\n\nSELECT 'Hello, BitCode!' AS greeting;\n" },
 ];
 
 const DEFAULT_LANG = LANGUAGES[0];
@@ -547,7 +547,7 @@ export function ChallengeAttempt({ challengeId }: { challengeId: string }) {
     setErr(null); setRunLogs([]); setRunResult(null); setRunning(true);
     try {
       const j = await apiPost<{ ok: true; runId: string }>("/api/run", {
-        language: "python", entry: `main.${lang.ext}`,
+        language: lang.id, entry: `main.${lang.ext}`,
         timeoutMs: 10000, files: [{ path: `main.${lang.ext}`, content: code }]
       });
       setRunId(j.runId);
@@ -672,11 +672,6 @@ export function ChallengeAttempt({ challengeId }: { challengeId: string }) {
         <div className="card" style={{ padding: "10px 14px", flexShrink: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
             <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", color: "var(--text-3)" }}>Language</span>
-            {!lang.runnable && (
-              <span style={{ fontSize: 11, color: "var(--yellow)", background: "var(--yellow-dim)", padding: "1px 8px", borderRadius: 999, border: "1px solid rgba(245,158,11,0.25)" }}>
-                Run: Python only
-              </span>
-            )}
           </div>
           <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
             {LANGUAGES.map((l) => {
@@ -701,8 +696,8 @@ export function ChallengeAttempt({ challengeId }: { challengeId: string }) {
           {activeTab === "editor" && (
             <div style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center" }}>
               {isCodeModified && <button className="btn sm ghost" onClick={resetCode} title="Reset to starter code">↺ Reset</button>}
-              <button className={`btn sm ${running ? "secondary" : ""}`} onClick={runCode} disabled={!lang.runnable || running}
-                title={lang.runnable ? "Run code (Python)" : `Execution not available for ${lang.label}`}>
+              <button className={`btn sm ${running ? "secondary" : ""}`} onClick={runCode} disabled={running}
+                title={`Run ${lang.label}`}>
                 {running ? "⏳ Running…" : `▶ Run ${lang.icon}`}
               </button>
             </div>
@@ -731,7 +726,7 @@ export function ChallengeAttempt({ challengeId }: { challengeId: string }) {
               <div ref={consoleRef} className="mono" style={{ fontSize: 12, color: "var(--text-2)", padding: "10px 12px", maxHeight: 140, overflowY: "auto" }}>
                 {runLogs.length > 0
                   ? runLogs.map((l, i) => <div key={i} style={{ lineHeight: 1.6 }}>{l}</div>)
-                  : <div style={{ color: "var(--text-3)" }}>{lang.runnable ? "No output yet. Click ▶ Run." : `${lang.label} execution coming soon.`}</div>}
+                  : <div style={{ color: "var(--text-3)" }}>No output yet. Click ▶ Run.</div>}
               </div>
             </div>
           </>

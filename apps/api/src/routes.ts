@@ -6,7 +6,7 @@ import { scoreAttemptHeuristic } from "@bitcode/shared";
 import { requireAdmin, requireUser, getUser } from "./auth.js";
 import { RunStore } from "./runStore.js";
 import { nanoid } from "nanoid";
-import { spawn } from "node:child_process";
+// spawn removed — replaced by Piston API
 import Anthropic from "@anthropic-ai/sdk";
 
 export const apiRouter = Router();
@@ -480,18 +480,33 @@ apiRouter.get("/bounties/:bountyId", async (req, res) => {
 });
 
 // --- Docker execution (Python v1) ---
+// ── Piston language map ───────────────────────────────────────────────────────
+// Maps our lang IDs to Piston's language identifiers.
+const PISTON_LANG: Record<string, string> = {
+  python:     "python",
+  javascript: "javascript",
+  typescript: "typescript",
+  go:         "go",
+  rust:       "rust",
+  java:       "java",
+  cpp:        "c++",
+  csharp:     "csharp",
+  ruby:       "ruby",
+  php:        "php",
+  shell:      "bash",
+  sql:        "sqlite3",
+};
+
+const SUPPORTED_LANGS = Object.keys(PISTON_LANG) as [string, ...string[]];
+
 const RunSchema = z.object({
-  language: z.enum(["python"]).default("python"),
-  entry: z.string().default("main.py"),
+  language: z.enum(SUPPORTED_LANGS).default("python"),
+  entry:    z.string().default("main.py"),
   timeoutMs: z.number().int().min(1000).max(30000).default(10000),
-  files: z
-    .array(
-      z.object({
-        path: z.string().min(1).max(200),
-        content: z.string().max(200000)
-      })
-    )
-    .min(1)
+  files: z.array(z.object({
+    path:    z.string().min(1).max(200),
+    content: z.string().max(200000)
+  })).min(1)
 });
 
 apiRouter.post("/run", async (req, res) => {
@@ -504,54 +519,67 @@ apiRouter.post("/run", async (req, res) => {
   const runId = nanoid(10);
   RunStore.create(runId);
 
-  // Ensure image exists; build is handled out-of-band in dev.
-  const image = "bitcode-runner-python:local";
-  const dockerArgs = [
-    "run",
-    "--rm",
-    "-i",
-    "--network",
-    "none",
-    "--cpus",
-    "1",
-    "--memory",
-    "512m",
-    "--pids-limit",
-    "128",
-    image
-  ];
+  const pistonUrl = String(process.env.PISTON_URL || "https://emkc.org/api/v2/piston");
+  const pistonLang = PISTON_LANG[parsed.data.language] ?? parsed.data.language;
 
-  const child = spawn("docker", dockerArgs, { stdio: ["pipe", "pipe", "pipe"] });
-  const payload = { ...parsed.data };
-  child.stdin.write(JSON.stringify(payload));
-  child.stdin.end();
+  // Run Piston call in background so we can return runId immediately
+  (async () => {
+    try {
+      const body = {
+        language: pistonLang,
+        version:  "*",
+        files:    parsed.data.files.map((f) => ({ name: f.path, content: f.content })),
+        run_timeout:     parsed.data.timeoutMs,
+        compile_timeout: 10000,
+      };
 
-  let tail = "";
-  function onData(buf: Buffer, stream: "stdout" | "stderr") {
-    const s = buf.toString("utf8");
-    for (const line of s.split(/\r?\n/)) {
-      if (!line) continue;
-      RunStore.appendLog(runId, `${stream}: ${line}`);
-      if (line.startsWith("[result] ")) {
-        try {
-          const j = JSON.parse(line.slice(9));
-          RunStore.setResult(runId, j);
-        } catch (e: any) {
-          RunStore.setError(runId, `bad result json: ${String(e?.message || e)}`);
+      const resp = await fetch(`${pistonUrl}/execute`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify(body),
+        signal:  AbortSignal.timeout(parsed.data.timeoutMs + 5000),
+      });
+
+      if (!resp.ok) {
+        const err = await resp.text().catch(() => `HTTP ${resp.status}`);
+        RunStore.appendLog(runId, `stderr: Execution service error: ${err}`);
+        RunStore.setError(runId, `piston error: ${resp.status}`);
+        return;
+      }
+
+      const data = await resp.json() as any;
+      const run     = data.run     ?? data;
+      const compile = data.compile ?? null;
+
+      // Surface compile errors (e.g. Java, C++, Rust, TypeScript)
+      if (compile?.stderr) {
+        for (const line of compile.stderr.split("\n").filter(Boolean)) {
+          RunStore.appendLog(runId, `stderr: ${line}`);
         }
       }
-      tail = (tail + "\n" + line).slice(-20000);
+      if (compile?.stdout) {
+        for (const line of compile.stdout.split("\n").filter(Boolean)) {
+          RunStore.appendLog(runId, `stdout: ${line}`);
+        }
+      }
+
+      // Stream run output line by line
+      const output = (run.stdout || "") + (run.stderr ? `\nstderr: ${run.stderr}` : "");
+      for (const line of output.split("\n")) {
+        if (line) RunStore.appendLog(runId, line);
+      }
+
+      RunStore.setResult(runId, {
+        exitCode: run.code ?? 0,
+        stdout:   run.stdout  ?? "",
+        stderr:   run.stderr  ?? "",
+        timeMs:   run.wall_time ?? 0,
+      });
+    } catch (e: any) {
+      RunStore.appendLog(runId, `stderr: ${String(e?.message || e)}`);
+      RunStore.setError(runId, String(e?.message || e));
     }
-  }
-  child.stdout.on("data", (b) => onData(b as Buffer, "stdout"));
-  child.stderr.on("data", (b) => onData(b as Buffer, "stderr"));
-  child.on("exit", (code) => {
-    const r = RunStore.get(runId);
-    if (!r) return;
-    if (r.status === "running") {
-      RunStore.setError(runId, `docker exited code=${code}`);
-    }
-  });
+  })();
 
   res.json({ ok: true, runId });
 });
