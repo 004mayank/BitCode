@@ -495,7 +495,7 @@ const RunSchema = z.object({
 });
 
 apiRouter.post("/run", async (req, res) => {
-  const user = await requireUser(req).catch((e) => ({ error: String(e?.message || e) } as any));
+  const user = await getUser(req).catch((e) => ({ error: String(e?.message || e) } as any));
   if ((user as any).error) return res.status(401).json({ ok: false, error: (user as any).error });
 
   const parsed = RunSchema.safeParse(req.body);
@@ -557,7 +557,7 @@ apiRouter.post("/run", async (req, res) => {
 });
 
 apiRouter.get("/run/:runId/result", async (req, res) => {
-  const user = await requireUser(req).catch((e) => ({ error: String(e?.message || e) } as any));
+  const user = await getUser(req).catch((e) => ({ error: String(e?.message || e) } as any));
   if ((user as any).error) return res.status(401).json({ ok: false, error: (user as any).error });
   const runId = String(req.params.runId || "");
   const r = RunStore.get(runId);
@@ -566,7 +566,7 @@ apiRouter.get("/run/:runId/result", async (req, res) => {
 });
 
 apiRouter.get("/run/:runId/stream", async (req, res) => {
-  const user = await requireUser(req).catch((e) => ({ error: String(e?.message || e) } as any));
+  const user = await getUser(req).catch((e) => ({ error: String(e?.message || e) } as any));
   if ((user as any).error) return res.status(401).json({ ok: false, error: (user as any).error });
   const runId = String(req.params.runId || "");
   const r = RunStore.get(runId);
