@@ -577,7 +577,9 @@ export function ChallengeAttempt({ challengeId }: { challengeId: string }) {
 
     try {
       const history = chatMessages.map((m) => ({ role: m.role, content: m.content }));
-      const challengeContext = challenge ? `Title: ${challenge.title}\n\nProblem:\n${challenge.prompt}` : undefined;
+      const challengeContext = challenge
+        ? `Title: ${challenge.title}\n\nProblem:\n${challenge.prompt}\n\nActive language: ${lang.label} (.${lang.ext}) — all code examples MUST be in ${lang.label} only.`
+        : undefined;
 
       const resp = await fetch(`${API_BASE}/api/chat`, {
         method: "POST",
