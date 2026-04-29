@@ -161,19 +161,6 @@ export default async function HomePage() {
 
           {/* Left: copy */}
           <div>
-            {/* Badge */}
-            <div style={{
-              display: "inline-flex", alignItems: "center", gap: 8,
-              padding: "5px 14px", borderRadius: 999,
-              border: "1px solid rgba(59,130,246,0.4)",
-              background: "rgba(59,130,246,0.08)",
-              fontSize: 12, fontWeight: 600, color: "#60a5fa",
-              letterSpacing: "0.04em", textTransform: "uppercase", marginBottom: 28,
-            }}>
-              <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#3b82f6", display: "inline-block", animation: "pulse 2s ease-in-out infinite" }} />
-              AI-Native Developer Platform
-            </div>
-
             {/* Headline */}
             <h1 style={{
               fontSize: "clamp(40px, 5.5vw, 72px)", fontWeight: 900, lineHeight: 1.05,
@@ -199,8 +186,8 @@ export default async function HomePage() {
               maxWidth: 480, margin: "0 0 40px",
             }}>
               BitCode integrates the latest AI coding technology and evaluates developers on{" "}
-              <em style={{ color: "rgba(255,255,255,0.7)", fontStyle: "normal", fontWeight: 600 }}>how they think</em>
-              {" "} — not just what they ship. Solve real engineering problems, log your AI workflow, get an explainable skill score.
+              <em style={{ color: "rgba(255,255,255,0.7)", fontStyle: "normal", fontWeight: 600 }}>how they think,</em>
+              {" "} not just what they ship. Solve real engineering problems, log your AI workflow, get an explainable skill score.
             </p>
 
             {/* CTAs */}
