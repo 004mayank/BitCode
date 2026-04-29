@@ -1,4 +1,4 @@
-import { auth } from "../auth/[...nextauth]/route";
+import { auth } from "../../../auth";
 import crypto from "node:crypto";
 
 // MVP bridge: mint an HS256 JWT compatible with the API verifier.
