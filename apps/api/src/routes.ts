@@ -272,54 +272,89 @@ const ChatSchema = z.object({
   challengeContext: z.string().max(4000).optional()
 });
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+async function callAnthropic(apiKey: string, systemPrompt: string, messages: Anthropic.MessageParam[]): Promise<string> {
+  const client = new Anthropic({ apiKey });
+  const response = await client.messages.create({
+    model: "claude-opus-4-5",
+    max_tokens: 1024,
+    system: systemPrompt,
+    messages
+  });
+  return response.content.filter((b) => b.type === "text").map((b) => (b as any).text).join("");
+}
+
+async function callOpenAI(apiKey: string, systemPrompt: string, messages: Anthropic.MessageParam[]): Promise<string> {
+  const body = {
+    model: "gpt-4o",
+    max_tokens: 1024,
+    messages: [
+      { role: "system", content: systemPrompt },
+      ...messages.map((m) => ({ role: m.role, content: m.content }))
+    ]
+  };
+  const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+    body: JSON.stringify(body)
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    throw new Error((err as any)?.error?.message ?? `OpenAI error ${resp.status}`);
+  }
+  const data = await resp.json() as any;
+  return data.choices?.[0]?.message?.content ?? "";
+}
 
 apiRouter.post("/chat", async (req, res) => {
   const parsed = ChatSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
 
-  const user = await getUser(req).catch(() => null);
+  // Key comes from the client header — never stored on our side
+  const userKey      = String(req.headers["x-ai-key"]      || "").trim();
+  const userProvider = String(req.headers["x-ai-provider"] || "anthropic").toLowerCase();
 
+  if (!userKey) {
+    return res.status(401).json({ ok: false, error: "No API key provided. Add your Anthropic or OpenAI key in Settings." });
+  }
+
+  const user = await getUser(req).catch(() => null);
   const { attemptId, message, history, challengeContext } = parsed.data;
 
   const systemPrompt = [
     "You are a helpful coding assistant inside BitCode, an AI-native developer challenge platform.",
-    "Your role is to help the user understand and solve the coding challenge they are working on.",
+    "Help the user understand and solve the coding challenge they are working on.",
     "Be concise and practical. Prefer code examples when helpful.",
     challengeContext ? `\nChallenge context:\n${challengeContext}` : ""
   ].filter(Boolean).join("\n");
 
+  const messages: Anthropic.MessageParam[] = [
+    ...history.map((h) => ({ role: h.role, content: h.content } as Anthropic.MessageParam)),
+    { role: "user", content: message }
+  ];
+
   try {
-    const messages: Anthropic.MessageParam[] = [
-      ...history.map((h) => ({ role: h.role, content: h.content } as Anthropic.MessageParam)),
-      { role: "user", content: message }
-    ];
+    let reply: string;
+    if (userProvider === "openai") {
+      reply = await callOpenAI(userKey, systemPrompt, messages);
+    } else {
+      reply = await callAnthropic(userKey, systemPrompt, messages);
+    }
 
-    const response = await anthropic.messages.create({
-      model: "claude-opus-4-5",
-      max_tokens: 1024,
-      system: systemPrompt,
-      messages
-    });
-
-    const reply = response.content
-      .filter((b) => b.type === "text")
-      .map((b) => (b as any).text)
-      .join("");
-
-    // Auto-log the user message as a prompt event if we have an attempt
+    // Auto-log the user message as a prompt event — key is never included in the log
     if (attemptId && user) {
       const attempt = await db.attempt.findFirst({ where: { id: attemptId, userId: (user as any).id } });
       if (attempt) {
         await db.promptEvent.create({
-          data: { attemptId, type: "prompt", text: message, meta: { source: "chat", reply } as any }
+          data: { attemptId, type: "prompt", text: message, meta: { source: "chat", provider: userProvider } as any }
         }).catch(() => {});
       }
     }
 
     res.json({ ok: true, reply });
   } catch (e: any) {
-    res.status(500).json({ ok: false, error: String(e?.message || e) });
+    const msg = String(e?.message || e);
+    const status = msg.includes("401") || msg.includes("invalid") || msg.includes("Incorrect API key") ? 401 : 500;
+    res.status(status).json({ ok: false, error: msg });
   }
 });
 
