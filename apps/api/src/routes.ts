@@ -2,11 +2,10 @@ import { Router } from "express";
 import { db } from "@bitcode/db/src/index.js";
 import { z } from "zod";
 import { CreateAttemptSchema, LogPromptEventSchema, SubmitAttemptSchema } from "@bitcode/shared";
-import { scoreAttemptHeuristic } from "@bitcode/shared";
 import { requireAdmin, requireUser, getUser } from "./auth.js";
 import { RunStore } from "./runStore.js";
+import { evaluateAttempt, evaluateSubmission } from "./evaluator.js";
 import { nanoid } from "nanoid";
-// spawn removed — replaced by Piston API
 import Anthropic from "@anthropic-ai/sdk";
 
 export const apiRouter = Router();
@@ -212,12 +211,16 @@ apiRouter.post("/attempts/submit", async (req, res) => {
 });
 
 // SSE: stream evaluation for an attempt.
+// Uses LLM evaluator when ANTHROPIC_API_KEY is configured; falls back to heuristic.
 apiRouter.get("/attempts/:attemptId/evaluate/stream", async (req, res) => {
   const attemptId = String(req.params.attemptId || "");
   const user = await getUser(req).catch((e) => ({ error: String(e?.message || e) } as any));
   if ((user as any).error) return res.status(401).json({ ok: false, error: (user as any).error });
 
-  const attempt = await db.attempt.findFirst({ where: { id: attemptId, userId: (user as any).id }, include: { events: true } });
+  const attempt = await db.attempt.findFirst({
+    where: { id: attemptId, userId: (user as any).id },
+    include: { events: true, challenge: true }
+  });
   if (!attempt) return res.status(404).json({ ok: false, error: "Attempt not found" });
 
   res.setHeader("Content-Type", "text/event-stream");
@@ -230,34 +233,90 @@ apiRouter.get("/attempts/:attemptId/evaluate/stream", async (req, res) => {
     res.write(`data: ${JSON.stringify(data)}\n\n`);
   }
 
-  send("log", { message: "Starting evaluation…" });
-  await new Promise((r) => setTimeout(r, 300));
+  const apiKey = String(process.env.ANTHROPIC_API_KEY || "").trim() || undefined;
+  const method = apiKey ? "llm+heuristic" : "heuristic";
+
+  send("log", { message: `Starting evaluation (${method})…` });
 
   const startedAt = attempt.startedAt.getTime();
-  const endedAt = (attempt.endedAt ?? new Date()).getTime();
-  const breakdown = scoreAttemptHeuristic({
+  const endedAt   = (attempt.endedAt ?? new Date()).getTime();
+
+  const rubric = attempt.challenge?.rubric as { correctness?: string; aiUsage?: string } | null | undefined;
+
+  const input = {
     startedAt,
     endedAt,
-    events: attempt.events.map((e) => ({ type: e.type as any, text: e.text, createdAt: e.createdAt.getTime() })),
-    hasSubmission: Boolean(attempt.submissionUrl)
-  });
+    events:          attempt.events.map((e) => ({ type: e.type as any, text: e.text, createdAt: e.createdAt.getTime() })),
+    hasSubmission:   Boolean(attempt.submissionUrl),
+    summary:         attempt.summary,
+    challengePrompt: attempt.challenge?.prompt,
+    challengeRubric: rubric ?? null,
+  };
 
-  send("log", { message: "Scoring complete" });
+  if (apiKey) send("log", { message: "Running LLM rubric evaluation…" });
+
+  const breakdown = await evaluateAttempt(input, apiKey);
+
+  send("log", { message: `Scored via ${breakdown.method}. Computing final total…` });
   send("score", breakdown);
 
   const saved = await db.attempt.update({
     where: { id: attempt.id },
-    data: {
-      status: "EVALUATED",
-      scoreTotal: breakdown.total,
-      score: breakdown as any
-    }
+    data:  { status: "EVALUATED", scoreTotal: breakdown.total, score: breakdown as any }
   });
 
   await recomputeUserStats((user as any).id);
 
-  send("done", { ok: true, attemptId: saved.id, total: saved.scoreTotal });
+  send("done", { ok: true, attemptId: saved.id, total: saved.scoreTotal, method: breakdown.method });
   res.end();
+});
+
+// ── Submission auto-score ─────────────────────────────────────────────────────
+// Runs the LLM evaluator (or heuristic fallback) on a bounty submission and
+// persists the result to autoScoreTotal / autoScore.
+// Can be called by the submitter after submitting, or by an admin/background job.
+apiRouter.post("/submissions/:submissionId/auto-score", async (req, res) => {
+  const submissionId = String(req.params.submissionId || "");
+  const user = await getUser(req).catch((e) => ({ error: String(e?.message || e) } as any));
+  if ((user as any).error) return res.status(401).json({ ok: false, error: (user as any).error });
+
+  const submission = await db.submission.findFirst({
+    where: { id: submissionId },
+    include: { bounty: { include: { challenge: true } } }
+  });
+  if (!submission) return res.status(404).json({ ok: false, error: "Submission not found" });
+
+  // Only the submitter or an admin can trigger auto-scoring
+  const isOwner = submission.userId === (user as any).id;
+  const isAdm   = (user as any).role === "admin" || String(process.env.ADMIN_GITHUB || "") === (user as any).github;
+  if (!isOwner && !isAdm) return res.status(403).json({ ok: false, error: "Not authorised" });
+
+  const { bounty } = submission;
+  const challenge  = bounty.challenge;
+  const rubric     = challenge?.rubric as { correctness?: string; aiUsage?: string } | null | undefined;
+
+  const apiKey = String(process.env.ANTHROPIC_API_KEY || "").trim() || undefined;
+
+  const input = {
+    note:               submission.note,
+    repoUrl:            submission.repoUrl,
+    prUrl:              submission.prUrl,
+    commitSha:          submission.commitSha,
+    bountyTitle:        bounty.title,
+    bountyDescription:  bounty.description,
+    bountyRequirements: bounty.requirements as Record<string, unknown> | null,
+    challengePrompt:    challenge?.prompt,
+    challengeRubric:    rubric ?? null,
+  };
+
+  const score = await evaluateSubmission(input, apiKey);
+
+  const updated = await db.submission.update({
+    where: { id: submissionId },
+    data:  { autoScoreTotal: score.total, autoScore: score as any }
+  });
+
+  res.json({ ok: true, score, submission: { id: updated.id, autoScoreTotal: updated.autoScoreTotal } });
 });
 
 // ── AI Chat ──────────────────────────────────────────────────────────────────
