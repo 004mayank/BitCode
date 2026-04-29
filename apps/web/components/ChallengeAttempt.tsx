@@ -806,14 +806,23 @@ export function ChallengeAttempt({ challengeId }: { challengeId: string }) {
                   key={i}
                   msg={msg}
                   onInsert={(code, langHint) => {
-                    // Try to match the code fence language to one of our lang ids
+                    // Match fence language hint to one of our lang entries
+                    const hint = langHint.toLowerCase();
                     const matched = LANGUAGES.find(
-                      (l) => l.id === langHint.toLowerCase() ||
-                             l.label.toLowerCase() === langHint.toLowerCase() ||
-                             l.ext === langHint.toLowerCase()
+                      (l) => l.id === hint ||
+                             l.label.toLowerCase() === hint ||
+                             l.ext === hint
                     );
+                    // Capture target lang NOW (synchronously) — don't rely on state update
+                    const targetLang = matched ?? lang;
                     if (matched) setLang(matched);
-                    setCode(code);
+                    // Write directly into the target lang's codeMap slot,
+                    // bypassing setCode() which reads stale lang.id from closure
+                    setCodeMap((m) => {
+                      const next = { ...m, [targetLang.id]: code };
+                      try { localStorage.setItem(codeStorageKey(challengeId, targetLang.id), code); } catch {}
+                      return next;
+                    });
                     setActiveTab("editor");
                   }}
                 />
