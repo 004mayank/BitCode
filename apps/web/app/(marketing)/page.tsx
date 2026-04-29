@@ -234,7 +234,7 @@ export default async function HomePage() {
 
           {/* Right: brain animation */}
           <div style={{ display: "flex", justifyContent: "center", alignItems: "center" }}>
-            <BrainAnimation size={520} />
+            <BrainAnimation size={700} />
           </div>
         </div>
       </section>
