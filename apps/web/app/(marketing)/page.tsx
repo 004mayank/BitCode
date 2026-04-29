@@ -114,14 +114,7 @@ export default async function HomePage() {
               { href: "/bounties", label: "Bounties" },
               { href: "/leaderboard", label: "Leaderboard" },
             ].map((item) => (
-              <Link key={item.href} href={item.href} style={{
-                color: "rgba(255,255,255,0.55)", fontSize: 14, fontWeight: 500,
-                textDecoration: "none", padding: "6px 14px", borderRadius: 8,
-                transition: "color 0.15s, background 0.15s",
-              }}
-                onMouseEnter={(e) => { (e.target as HTMLElement).style.color = "#fff"; (e.target as HTMLElement).style.background = "rgba(255,255,255,0.06)"; }}
-                onMouseLeave={(e) => { (e.target as HTMLElement).style.color = "rgba(255,255,255,0.55)"; (e.target as HTMLElement).style.background = "transparent"; }}
-              >
+              <Link key={item.href} href={item.href} className="lp-nav-link">
                 {item.label}
               </Link>
             ))}
@@ -444,6 +437,19 @@ export default async function HomePage() {
         @keyframes marquee {
           from { transform: translateX(0); }
           to   { transform: translateX(-33.33%); }
+        }
+        .lp-nav-link {
+          color: rgba(255,255,255,0.55);
+          font-size: 14px;
+          font-weight: 500;
+          text-decoration: none;
+          padding: 6px 14px;
+          border-radius: 8px;
+          transition: color 0.15s, background 0.15s;
+        }
+        .lp-nav-link:hover {
+          color: #fff;
+          background: rgba(255,255,255,0.07);
         }
       `}</style>
     </div>
