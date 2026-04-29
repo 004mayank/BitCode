@@ -97,22 +97,31 @@ export default async function HomePage() {
         backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
         background: "rgba(0,0,0,0.72)",
       }}>
-        <div style={{ maxWidth: 1180, margin: "0 auto", padding: "0 28px", height: 60, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          {/* Logo */}
-          <Link href="/" style={{ textDecoration: "none", display: "flex", alignItems: "center", gap: 10 }}>
-            <span style={{ fontSize: 22, fontWeight: 900, letterSpacing: "-0.03em" }}>
+        <div style={{ padding: "0 6vw", height: 60, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          {/* Logo — extreme left */}
+          <Link href="/" style={{ textDecoration: "none", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+            {/* Terminal icon */}
+            <div style={{
+              width: 34, height: 34, borderRadius: 7,
+              background: "#0d0d20", border: "1px solid rgba(139,92,246,0.5)",
+              display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+            }}>
+              <span style={{ fontFamily: "monospace", fontSize: 11, fontWeight: 900, color: "#00dc9b", letterSpacing: "-1px" }}>{"{/}"}</span>
+            </div>
+            <span style={{ fontSize: 20, fontWeight: 900, letterSpacing: "-0.03em" }}>
               <span style={{ color: "#fff" }}>Bit</span>
               <span style={{ color: "#8b5cf6" }}>Code</span>
             </span>
           </Link>
 
-          {/* Nav links */}
+          {/* Nav links — center */}
           <nav style={{ display: "flex", alignItems: "center", gap: 4 }}>
             {[
               { href: "/dashboard", label: "Dashboard" },
               { href: "/challenges", label: "Challenges" },
               { href: "/bounties", label: "Bounties" },
               { href: "/leaderboard", label: "Leaderboard" },
+              { href: "/about", label: "About" },
             ].map((item) => (
               <Link key={item.href} href={item.href} className="lp-nav-link">
                 {item.label}
@@ -157,7 +166,7 @@ export default async function HomePage() {
         <div style={{ position: "absolute", bottom: "5%", right: "-5%", width: 500, height: 500, borderRadius: "50%", background: "radial-gradient(circle, rgba(139,92,246,0.07) 0%, transparent 70%)", pointerEvents: "none" }} />
         <div style={{ position: "absolute", top: "30%", right: "20%", width: 400, height: 400, borderRadius: "50%", background: "radial-gradient(circle, rgba(0,220,180,0.06) 0%, transparent 70%)", pointerEvents: "none" }} />
 
-        <div style={{ padding: "80px 6vw", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 60, alignItems: "center", width: "100%" }}>
+        <div style={{ padding: "80px 6vw", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24, alignItems: "center", width: "100%" }}>
 
           {/* Left: copy */}
           <div>
@@ -232,8 +241,8 @@ export default async function HomePage() {
             </div>
           </div>
 
-          {/* Right: brain animation */}
-          <div style={{ display: "flex", justifyContent: "center", alignItems: "center" }}>
+          {/* Right: fingerprint animation — left-aligned to close center gap */}
+          <div style={{ display: "flex", justifyContent: "flex-start", alignItems: "center" }}>
             <BrainAnimation size={700} />
           </div>
         </div>
@@ -300,14 +309,15 @@ export default async function HomePage() {
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 32, position: "relative" }}>
-            {/* Connector line */}
+            {/* Connector line — from centre of col-1 circle to centre of col-3 circle */}
             <div style={{
-              position: "absolute", top: 28, left: "16.5%", right: "16.5%", height: 1,
-              background: "linear-gradient(90deg, rgba(59,130,246,0.4), rgba(139,92,246,0.4), rgba(16,185,129,0.4))",
-              zIndex: 0,
+              position: "absolute", top: 27, height: 2, zIndex: 0,
+              left: "calc(100% / 6)",
+              right: "calc(100% / 6)",
+              background: "linear-gradient(90deg, rgba(59,130,246,0.5), rgba(139,92,246,0.5), rgba(16,185,129,0.5))",
             }} />
             {STEPS.map((s, i) => (
-              <div key={s.n} style={{ position: "relative", zIndex: 1 }}>
+              <div key={s.n} style={{ position: "relative", zIndex: 1, display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center" }}>
                 <div style={{
                   width: 56, height: 56, borderRadius: "50%",
                   background: i === 0 ? "#3b82f6" : i === 1 ? "#8b5cf6" : "#10b981",
