@@ -86,7 +86,7 @@ export function BrainAnimation({ size = 480 }: { size?: number }) {
     /* ── Character grid ── */
     const grid = Array.from({ length: COLS * ROWS }, () => ({
       char:  CHARS[Math.floor(Math.random() * CHARS.length)],
-      alpha: 0.15 + Math.random() * 0.85,
+      alpha: 0.35 + Math.random() * 0.65,   // brighter base
       rate:  0.003 + Math.random() * 0.032,
       phase: Math.random() * Math.PI * 2,
     }));
@@ -116,9 +116,10 @@ export function BrainAnimation({ size = 480 }: { size?: number }) {
             if (Math.random() < 0.06) cell.alpha = 0.15 + Math.random() * 0.85;
           }
 
-          const pulse = 0.68 + 0.32 * Math.sin(t * 1.3 + cell.phase);
+          const pulse = 0.72 + 0.28 * Math.sin(t * 1.3 + cell.phase);
           let a = Math.min(1, cell.alpha * pulse);
-          if (dimmed) a *= 0.07;
+          // Hover: dim to ~30% — visibly darker but shape stays readable
+          if (dimmed) a *= 0.30;
 
           // Left hemisphere: teal-blue tint; right: teal-green tint
           const isLeft = col < midCol;
@@ -150,7 +151,7 @@ export function BrainAnimation({ size = 480 }: { size?: number }) {
       style={{
         display: "block",
         cursor: "default",
-        filter: "drop-shadow(0 0 40px rgba(0,220,180,0.28)) drop-shadow(0 0 80px rgba(0,220,180,0.10))",
+        filter: "drop-shadow(0 0 32px rgba(0,220,180,0.50)) drop-shadow(0 0 70px rgba(0,220,180,0.22))",
       }}
     />
   );
