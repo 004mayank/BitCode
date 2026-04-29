@@ -209,14 +209,14 @@ function ChatBubble({ msg, onInsert }: { msg: ChatMessage; onInsert?: (code: str
                 </div>
               ) : null
             ) : (
-              <div key={i} style={{ borderRadius: 10, overflow: "hidden", border: "1px solid var(--border)" }}>
-                {/* Code block header */}
+              <div key={i} style={{ borderRadius: 10, overflow: "hidden", border: "1px solid rgba(255,255,255,0.1)" }}>
+                {/* Code block header — always dark regardless of theme */}
                 <div style={{
                   display: "flex", alignItems: "center", justifyContent: "space-between",
-                  padding: "5px 12px", background: "rgba(255,255,255,0.04)",
-                  borderBottom: "1px solid var(--border)",
+                  padding: "5px 12px", background: "#1e1e2e",
+                  borderBottom: "1px solid rgba(255,255,255,0.08)",
                 }}>
-                  <span style={{ fontSize: 11, color: "var(--text-3)", fontFamily: "monospace" }}>
+                  <span style={{ fontSize: 11, color: "#7c8db0", fontFamily: "monospace" }}>
                     {seg.lang || "code"}
                   </span>
                   {onInsert && (
@@ -230,11 +230,11 @@ function ChatBubble({ msg, onInsert }: { msg: ChatMessage; onInsert?: (code: str
                     </button>
                   )}
                 </div>
-                {/* Code */}
+                {/* Code — always dark bg + light text, never inherits theme */}
                 <pre style={{
                   margin: 0, padding: "10px 12px",
-                  background: "#0d0d0d",
-                  color: "var(--text-1)",
+                  background: "#0d0d14",
+                  color: "#cdd6f4",
                   fontSize: 12, lineHeight: 1.6,
                   overflowX: "auto",
                   fontFamily: "ui-monospace, 'Cascadia Code', 'Fira Code', monospace",
