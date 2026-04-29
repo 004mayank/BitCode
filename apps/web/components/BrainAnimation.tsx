@@ -1,9 +1,10 @@
 "use client";
 import { useEffect, useRef } from "react";
 
-const CHARS = "01ABCDEFabcdef@#$%&*(){}[]<>/\\|+-=_~^`!?;:.,";
+// Heavy on $ like the reference, mixed with hex/code chars
+const CHARS = "$$$$$$SBZhnjkwm$$$01ABCDEFabcdef$$$@#&*{}[]<>|+-$$$";
 
-export function BrainAnimation({ size = 480 }: { size?: number }) {
+export function BrainAnimation({ size = 500 }: { size?: number }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const hoveredRef = useRef(false);
 
@@ -13,64 +14,67 @@ export function BrainAnimation({ size = 480 }: { size?: number }) {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    const W = size;
+    // Portrait canvas: narrower width, taller height
+    const W = Math.round(size * 0.78);
     const H = size;
-    const CW = 9;
-    const CH = 14;
+    canvas.width  = W;
+    canvas.height = H;
+
+    const CW = 8;   // char cell width  (smaller → denser)
+    const CH = 12;  // char cell height
     const COLS = Math.floor(W / CW);
     const ROWS = Math.floor(H / CH);
 
-    /* ──────────────────────────────────────────────────────────────
-       Two-hemisphere mask.
-       Each hemisphere = organic brain lobe shape drawn as bezier.
-       A clear vertical gap runs down the exact centre.
-    ─────────────────────────────────────────────────────────────── */
+    /* ──────────────────────────────────────────────────────
+       Build tall-oval brain mask on an offscreen canvas.
+       One single oval shape; the fissure is just 1 column
+       of skipped cells at the exact centre.
+    ────────────────────────────────────────────────────── */
     const off = document.createElement("canvas");
     off.width = W; off.height = H;
     const oc = off.getContext("2d")!;
 
-    const cx   = W / 2;
-    const cy   = H * 0.48;
-    const gap  = Math.ceil(CW * 1.8);  // ~1.8 char-cell gap each side of centre
-    const rw   = W * 0.38;             // radius x per hemisphere
-    const rh   = H * 0.42;             // radius y
+    const cx = W / 2;
+    const cy = H * 0.50;
+    const rx = W * 0.46;   // horizontal radius
+    const ry = H * 0.47;   // vertical radius
 
     oc.fillStyle = "#fff";
 
-    // ── Left hemisphere ──────────────────────────────────────────
-    //   medial (right) edge = cx − gap
-    //   lateral (left) edge = cx − gap − 2*rw
-    oc.save();
-    oc.translate(cx - gap, cy);
+    // Organic brain outline — single closed bezier path
     oc.beginPath();
-    // Start at medial bottom
-    oc.moveTo(0,     rh * 0.70);
-    // Bottom curve to lateral
-    oc.bezierCurveTo(-rw * 0.25, rh * 0.92, -rw * 0.80, rh * 0.60, -rw * 1.00, rh * 0.05);
-    // Up the lateral side
-    oc.bezierCurveTo(-rw * 1.06, -rh * 0.32, -rw * 0.92, -rh * 0.72, -rw * 0.48, -rh * 0.96);
-    // Across the top
-    oc.bezierCurveTo(-rw * 0.18, -rh * 1.06, -rw * 0.02, -rh * 1.00, 0, -rh * 0.82);
-    // Medial edge (inner) — slight concavity inward
-    oc.bezierCurveTo(rw * 0.06, -rh * 0.44, rw * 0.06, rh * 0.32, 0, rh * 0.70);
+    oc.moveTo(cx, cy - ry);                                          // top centre
+    // Top-right quadrant
+    oc.bezierCurveTo(
+      cx + rx * 0.60, cy - ry * 1.02,
+      cx + rx * 1.05, cy - ry * 0.55,
+      cx + rx,        cy
+    );
+    // Bottom-right
+    oc.bezierCurveTo(
+      cx + rx * 1.02, cy + ry * 0.48,
+      cx + rx * 0.62, cy + ry * 0.94,
+      cx + rx * 0.10, cy + ry * 0.88
+    );
+    // Bottom notch (brain stem area)
+    oc.bezierCurveTo(
+      cx + rx * 0.05, cy + ry * 0.98,
+      cx - rx * 0.05, cy + ry * 0.98,
+      cx - rx * 0.10, cy + ry * 0.88
+    );
+    // Bottom-left
+    oc.bezierCurveTo(
+      cx - rx * 0.62, cy + ry * 0.94,
+      cx - rx * 1.02, cy + ry * 0.48,
+      cx - rx,        cy
+    );
+    // Top-left
+    oc.bezierCurveTo(
+      cx - rx * 1.05, cy - ry * 0.55,
+      cx - rx * 0.60, cy - ry * 1.02,
+      cx,             cy - ry
+    );
     oc.fill();
-    oc.restore();
-
-    // ── Right hemisphere (mirror) ─────────────────────────────────
-    oc.save();
-    oc.translate(cx + gap, cy);
-    oc.beginPath();
-    oc.moveTo(0,    rh * 0.70);
-    // Medial edge (inner)
-    oc.bezierCurveTo(-rw * 0.06, rh * 0.32, -rw * 0.06, -rh * 0.44, 0, -rh * 0.82);
-    // Top
-    oc.bezierCurveTo(rw * 0.02, -rh * 1.00, rw * 0.18, -rh * 1.06, rw * 0.48, -rh * 0.96);
-    // Up lateral side
-    oc.bezierCurveTo(rw * 0.92, -rh * 0.72, rw * 1.06, -rh * 0.32, rw * 1.00, rh * 0.05);
-    // Bottom
-    oc.bezierCurveTo(rw * 0.80, rh * 0.60, rw * 0.25, rh * 0.92, 0, rh * 0.70);
-    oc.fill();
-    oc.restore();
 
     const imgData = oc.getImageData(0, 0, W, H).data;
     function inBrain(col: number, row: number): boolean {
@@ -80,14 +84,13 @@ export function BrainAnimation({ size = 480 }: { size?: number }) {
       return imgData[(y * W + x) * 4 + 3] > 128;
     }
 
-    // Determine which side each column belongs to
     const midCol = COLS / 2;
 
     /* ── Character grid ── */
     const grid = Array.from({ length: COLS * ROWS }, () => ({
       char:  CHARS[Math.floor(Math.random() * CHARS.length)],
-      alpha: 0.35 + Math.random() * 0.65,   // brighter base
-      rate:  0.003 + Math.random() * 0.032,
+      alpha: 0.40 + Math.random() * 0.60,
+      rate:  0.004 + Math.random() * 0.030,
       phase: Math.random() * Math.PI * 2,
     }));
 
@@ -100,8 +103,8 @@ export function BrainAnimation({ size = 480 }: { size?: number }) {
 
     function draw() {
       ctx!.clearRect(0, 0, W, H);
-      ctx!.font = `bold 11px "Courier New", Courier, monospace`;
-      t += 0.016;
+      ctx!.font = `bold 10px "Courier New", Courier, monospace`;
+      t += 0.014;
 
       const dimmed = hoveredRef.current;
 
@@ -109,22 +112,24 @@ export function BrainAnimation({ size = 480 }: { size?: number }) {
         for (let col = 0; col < COLS; col++) {
           if (!inBrain(col, row)) continue;
 
-          const cell = grid[row * COLS + col];
+          // Fissure: skip exactly the centre column
+          const distFromMid = Math.abs(col - midCol);
+          if (distFromMid < 0.8) continue;
 
+          const cell = grid[row * COLS + col];
           if (Math.random() < cell.rate) {
-            cell.char = CHARS[Math.floor(Math.random() * CHARS.length)];
-            if (Math.random() < 0.06) cell.alpha = 0.15 + Math.random() * 0.85;
+            cell.char  = CHARS[Math.floor(Math.random() * CHARS.length)];
+            if (Math.random() < 0.05) cell.alpha = 0.40 + Math.random() * 0.60;
           }
 
-          const pulse = 0.72 + 0.28 * Math.sin(t * 1.3 + cell.phase);
+          const pulse = 0.75 + 0.25 * Math.sin(t * 1.2 + cell.phase);
           let a = Math.min(1, cell.alpha * pulse);
-          // Hover: dim to ~30% — visibly darker but shape stays readable
-          if (dimmed) a *= 0.30;
+          if (dimmed) a *= 0.28;   // hover: dim but still visible
 
-          // Left hemisphere: teal-blue tint; right: teal-green tint
+          // Slight teal tint difference: left cooler, right warmer
           const isLeft = col < midCol;
-          const g = isLeft ? 208 : 220;
-          const b = isLeft ? 195 : 158;
+          const g = isLeft ? 205 : 218;
+          const b = isLeft ? 192 : 155;
 
           ctx!.fillStyle = `rgba(0,${g},${b},${a})`;
           ctx!.fillText(cell.char, col * CW, (row + 1) * CH - 2);
@@ -135,7 +140,6 @@ export function BrainAnimation({ size = 480 }: { size?: number }) {
     }
 
     draw();
-
     return () => {
       cancelAnimationFrame(raf);
       canvas.removeEventListener("mouseenter", onEnter);
@@ -146,12 +150,13 @@ export function BrainAnimation({ size = 480 }: { size?: number }) {
   return (
     <canvas
       ref={canvasRef}
-      width={size}
+      width={Math.round(size * 0.78)}
       height={size}
       style={{
         display: "block",
         cursor: "default",
-        filter: "drop-shadow(0 0 32px rgba(0,220,180,0.50)) drop-shadow(0 0 70px rgba(0,220,180,0.22))",
+        filter:
+          "drop-shadow(0 0 28px rgba(0,210,175,0.55)) drop-shadow(0 0 65px rgba(0,210,175,0.20))",
       }}
     />
   );

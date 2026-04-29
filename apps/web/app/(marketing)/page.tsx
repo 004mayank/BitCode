@@ -234,20 +234,7 @@ export default async function HomePage() {
 
           {/* Right: brain animation */}
           <div style={{ display: "flex", justifyContent: "center", alignItems: "center" }}>
-            <div style={{
-              background: "rgba(0,0,0,0.5)",
-              border: "1px solid rgba(0,220,180,0.12)",
-              borderRadius: 24,
-              padding: 24,
-              position: "relative",
-            }}>
-              {/* Corner accents */}
-              <div style={{ position: "absolute", top: -1, left: -1, width: 20, height: 20, borderTop: "2px solid rgba(0,220,180,0.6)", borderLeft: "2px solid rgba(0,220,180,0.6)", borderRadius: "12px 0 0 0" }} />
-              <div style={{ position: "absolute", top: -1, right: -1, width: 20, height: 20, borderTop: "2px solid rgba(0,220,180,0.6)", borderRight: "2px solid rgba(0,220,180,0.6)", borderRadius: "0 12px 0 0" }} />
-              <div style={{ position: "absolute", bottom: -1, left: -1, width: 20, height: 20, borderBottom: "2px solid rgba(0,220,180,0.6)", borderLeft: "2px solid rgba(0,220,180,0.6)", borderRadius: "0 0 0 12px" }} />
-              <div style={{ position: "absolute", bottom: -1, right: -1, width: 20, height: 20, borderBottom: "2px solid rgba(0,220,180,0.6)", borderRight: "2px solid rgba(0,220,180,0.6)", borderRadius: "0 0 12px 0" }} />
-              <BrainAnimation size={440} />
-            </div>
+            <BrainAnimation size={520} />
           </div>
         </div>
       </section>
