@@ -4,7 +4,7 @@ import { SidebarNav } from "../components/SidebarNav";
 import { ThemeToggle } from "../components/ThemeToggle";
 
 export const metadata = {
-  title: "BitCode — AI-native Dev Platform",
+  title: "BitCode - AI-native Dev Platform",
   description: "Train with AI. Solve real problems. Get evaluated on how you think."
 };
 

@@ -182,7 +182,7 @@ export function Profile() {
           <div style={{ marginTop: 20, padding: 14, borderRadius: 10, background: "var(--bg)", border: "1px solid var(--border)" }}>
             <div style={{ fontSize: 12, color: "var(--text-2)", lineHeight: 1.7 }}>
               Your AI Skill Score combines submission quality, reputation, and bounties won.
-              Every challenge you work on — even without submitting — counts toward your streak.
+              Every challenge you work on, even without submitting, counts toward your streak.
             </div>
           </div>
         </div>

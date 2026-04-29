@@ -280,7 +280,7 @@ function KeySetup({ onSave }: { onSave: (key: string, provider: AIProvider) => v
         <div style={{ fontSize: 28, marginBottom: 8 }}>🔑</div>
         <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 4 }}>Add your API key</div>
         <div style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.6 }}>
-          Your key is saved only in your browser and never sent to our servers — it's only used to call the AI on your behalf.
+          Your key is saved only in your browser and never sent to our servers. It's only used to call the AI on your behalf.
         </div>
       </div>
 
@@ -581,7 +581,7 @@ export function ChallengeAttempt({ challengeId }: { challengeId: string }) {
     try {
       const history = chatMessages.map((m) => ({ role: m.role, content: m.content }));
       const challengeContext = challenge
-        ? `Title: ${challenge.title}\n\nProblem:\n${challenge.prompt}\n\nActive language: ${lang.label} (.${lang.ext}) — all code examples MUST be in ${lang.label} only.`
+        ? `Title: ${challenge.title}\n\nProblem:\n${challenge.prompt}\n\nActive language: ${lang.label} (.${lang.ext}) - all code examples MUST be in ${lang.label} only.`
         : undefined;
 
       const resp = await fetch(`${API_BASE}/api/chat`, {

@@ -93,7 +93,7 @@ export function DashboardHero() {
           <FeatureTile
             icon="◉"
             title="Living Resume"
-            desc="Your AI Skill Score is a living signal — challenges won, avg score, and workflow quality."
+            desc="Your AI Skill Score is a living signal: challenges won, avg score, and workflow quality."
             color="var(--purple)"
           />
         </div>

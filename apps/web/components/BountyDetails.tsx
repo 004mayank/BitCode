@@ -144,7 +144,7 @@ export function BountyDetails({ bountyId }: { bountyId: string }) {
           </div>
           {bounty.submissions.length === 0 ? (
             <div style={{ color: "var(--text-3)", textAlign: "center", padding: "24px 0" }}>
-              No submissions yet — be the first!
+              No submissions yet. Be the first!
             </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>

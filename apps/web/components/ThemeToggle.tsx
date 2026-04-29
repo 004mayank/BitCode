@@ -30,7 +30,7 @@ export function ThemeToggle() {
   return (
     <button
       onClick={cycle}
-      title={`Theme: ${LABELS[theme]} — click to switch`}
+      title={`Theme: ${LABELS[theme]} - click to switch`}
       style={{
         display: "flex",
         alignItems: "center",

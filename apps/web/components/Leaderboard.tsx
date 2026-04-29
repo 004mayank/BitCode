@@ -96,7 +96,7 @@ export function Leaderboard() {
                           </div>
                         </div>
                       </td>
-                      <td style={{ color: "var(--text-2)", fontSize: 13 }}>{r.challenge?.title ?? "—"}</td>
+                      <td style={{ color: "var(--text-2)", fontSize: 13 }}>{r.challenge?.title ?? "-"}</td>
                       <td style={{ textAlign: "right" }}>
                         <span style={{ fontWeight: 800, fontSize: 18, color: scoreColor(sc) }}>{sc}</span>
                       </td>
@@ -130,7 +130,7 @@ export function Leaderboard() {
         </table>
         {rows.length === 0 && !err && (
           <div style={{ padding: 32, textAlign: "center", color: "var(--text-3)" }}>
-            No data yet — complete a challenge to appear here.
+            No data yet. Complete a challenge to appear here.
           </div>
         )}
       </div>
