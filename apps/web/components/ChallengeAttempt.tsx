@@ -38,15 +38,10 @@ const DEFAULT_LANG = LANGUAGES[0];
 
 type Challenge   = { id: string; title: string; description: string; prompt: string; tags: string[]; difficulty: number; rubric?: any };
 type Attempt     = { id: string; challengeId: string; status: string; submissionUrl?: string | null };
-type LoggedEvent = { type: string; text: string; ts: number };
 type ScoreBreakdown = { promptQuality: number; iterationIntelligence: number; efficiency: number; correctnessProxy: number; total: number; notes: string[] };
+type ChatMessage = { role: "user" | "assistant"; content: string; ts: number };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-
-function fmt(ts: number) {
-  const d = new Date(ts);
-  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-}
 
 function scoreColor(n: number) {
   if (n >= 75) return "var(--green)";
@@ -125,7 +120,7 @@ function ScorePanel({ score }: { score: ScoreBreakdown }) {
 // ── Step indicator ────────────────────────────────────────────────────────────
 
 function Steps({ step }: { step: number }) {
-  const steps = ["Start", "Code & Log", "Submit", "Score"];
+  const steps = ["Start", "Code", "Submit", "Score"];
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 0, marginBottom: 14 }}>
       {steps.map((s, i) => {
@@ -157,21 +152,51 @@ function Steps({ step }: { step: number }) {
   );
 }
 
-// ── Main component ────────────────────────────────────────────────────────────
+// ── Chat bubble ───────────────────────────────────────────────────────────────
+
+function ChatBubble({ msg }: { msg: ChatMessage }) {
+  const isUser = msg.role === "user";
+  return (
+    <div style={{
+      display: "flex",
+      flexDirection: "column",
+      alignItems: isUser ? "flex-end" : "flex-start",
+      gap: 3,
+    }}>
+      <div style={{
+        maxWidth: "88%",
+        padding: "9px 13px",
+        borderRadius: isUser ? "14px 14px 4px 14px" : "14px 14px 14px 4px",
+        background: isUser ? "var(--blue)" : "var(--card)",
+        color: isUser ? "#fff" : "var(--text-1)",
+        fontSize: 13,
+        lineHeight: 1.6,
+        whiteSpace: "pre-wrap",
+        wordBreak: "break-word",
+        border: isUser ? "none" : "1px solid var(--border)",
+      }}>
+        {msg.content}
+      </div>
+      <div style={{ fontSize: 10, color: "var(--text-3)", paddingInline: 4 }}>
+        {isUser ? "You" : "BitCode AI"} · {new Date(msg.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+      </div>
+    </div>
+  );
+}
+
+// ── Storage key ───────────────────────────────────────────────────────────────
 
 function storageKey(challengeId: string, langId: string) {
   return `bc-code:${challengeId}:${langId}`;
 }
 
+// ── Main component ────────────────────────────────────────────────────────────
+
 export function ChallengeAttempt({ challengeId }: { challengeId: string }) {
   const [challenge, setChallenge]   = useState<Challenge | null>(null);
   const [attempt, setAttempt]       = useState<Attempt | null>(null);
-  const [submissionUrl, setUrl]     = useState("");
-  const [workflowNote, setNote]     = useState("");
-  const [loggedEvents, setEvents]   = useState<LoggedEvent[]>([]);
 
   const [lang, setLang]             = useState<Lang>(DEFAULT_LANG);
-  // Per-language code map – keys are lang.id, values are current code
   const [codeMap, setCodeMap]       = useState<Record<string, string>>(() => {
     const m: Record<string, string> = {};
     LANGUAGES.forEach((l) => { m[l.id] = l.starter; });
@@ -188,9 +213,15 @@ export function ChallengeAttempt({ challengeId }: { challengeId: string }) {
   const [evaluating, setEvaluating] = useState(false);
 
   const [err, setErr]               = useState<string | null>(null);
-  const [activeTab, setActiveTab]   = useState<"editor" | "events" | "score">("editor");
+  const [activeTab, setActiveTab]   = useState<"editor" | "score">("editor");
 
-  const esRef     = useRef<EventSource | null>(null);
+  // Chat state
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatInput, setChatInput]       = useState("");
+  const [chatLoading, setChatLoading]   = useState(false);
+  const chatEndRef   = useRef<HTMLDivElement>(null);
+
+  const esRef      = useRef<EventSource | null>(null);
   const consoleRef = useRef<HTMLDivElement>(null);
 
   // Current code for active lang
@@ -198,7 +229,6 @@ export function ChallengeAttempt({ challengeId }: { challengeId: string }) {
   function setCode(v: string) {
     setCodeMap((m) => {
       const next = { ...m, [lang.id]: v };
-      // Persist to localStorage
       try { localStorage.setItem(storageKey(challengeId, lang.id), v); } catch {}
       return next;
     });
@@ -218,7 +248,7 @@ export function ChallengeAttempt({ challengeId }: { challengeId: string }) {
     });
   }, [challengeId]);
 
-  // Load challenge + any existing in-progress attempt
+  // Load challenge
   useEffect(() => {
     apiGet<{ ok: true; challenges: Challenge[] }>("/api/challenges")
       .then((j) => j.challenges.find((c) => c.id === challengeId) ?? null)
@@ -226,15 +256,15 @@ export function ChallengeAttempt({ challengeId }: { challengeId: string }) {
       .catch((e) => setErr(String(e?.message || e)));
   }, [challengeId]);
 
-  // Switch language – preserves code in each slot
-  function switchLang(l: Lang) {
-    setLang(l);
-    // code for new lang is already in codeMap (or starter if never touched)
-  }
+  // Auto-scroll chat
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [chatMessages]);
+
+  function switchLang(l: Lang) { setLang(l); }
 
   function resetCode() {
-    const starter = lang.starter;
-    setCode(starter);
+    setCode(lang.starter);
     try { localStorage.removeItem(storageKey(challengeId, lang.id)); } catch {}
   }
 
@@ -250,41 +280,19 @@ export function ChallengeAttempt({ challengeId }: { challengeId: string }) {
     } catch (e: any) { setErr(String(e?.message || e)); }
   }
 
-  async function logWorkflow(type: "prompt" | "iteration" | "note") {
-    if (!attempt || !workflowNote.trim()) return;
-    const text = workflowNote.trim();
-    const ts = Date.now();
-    try {
-      await apiPost("/api/attempts/events", { attemptId: attempt.id, type, text });
-      setEvents((ev) => [...ev, { type, text, ts }]);
-      setNote("");
-      // Auto-switch to events tab so user sees the logged entry
-      setActiveTab("events");
-    } catch (e: any) { setErr(String(e?.message || e)); }
-  }
-
   async function submit() {
     if (!attempt) return;
     setErr(null);
+    setEvaluating(true);
+    setScore(null);
+    setActiveTab("score");
     try {
-      await apiPost("/api/attempts/submit", { attemptId: attempt.id, submissionUrl });
-      setAttempt({ ...attempt, status: "SUBMITTED", submissionUrl });
-    } catch (e: any) { setErr(String(e?.message || e)); }
-  }
+      // 1. Mark submitted
+      await apiPost("/api/attempts/submit", { attemptId: attempt.id, submissionUrl: null });
+      setAttempt({ ...attempt, status: "SUBMITTED" });
 
-  async function getToken() {
-    try { const r = await fetch("/api/api-token", { cache: "no-store" }); return (await r.json())?.token ?? null; }
-    catch { return null; }
-  }
-
-  async function evaluate() {
-    if (!attempt) return;
-    setEvaluating(true); setScore(null); setEvalLogs([]); setActiveTab("score");
-    const token = await getToken();
-    try {
-      const resp = await fetch(`${API_BASE}/api/attempts/${attempt.id}/evaluate/stream`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {}
-      });
+      // 2. Stream evaluation
+      const resp = await fetch(`${API_BASE}/api/attempts/${attempt.id}/evaluate/stream`);
       const reader = resp.body?.getReader();
       const dec = new TextDecoder();
       let buf = "", event = "";
@@ -325,7 +333,6 @@ export function ChallengeAttempt({ challengeId }: { challengeId: string }) {
       es.addEventListener("log",  (ev: any) => {
         const d = JSON.parse(ev.data);
         setRunLogs((l) => [...l, d.line]);
-        // Auto-scroll console
         setTimeout(() => { consoleRef.current?.scrollTo(0, consoleRef.current.scrollHeight); }, 10);
       });
       es.addEventListener("done", (ev: any) => { setRunResult(JSON.parse(ev.data)); es.close(); setRunning(false); });
@@ -335,6 +342,45 @@ export function ChallengeAttempt({ challengeId }: { challengeId: string }) {
 
   useEffect(() => () => { esRef.current?.close(); }, []);
 
+  // ── Chat ─────────────────────────────────────────────────────────────────
+
+  async function sendChat() {
+    const text = chatInput.trim();
+    if (!text || chatLoading) return;
+
+    const userMsg: ChatMessage = { role: "user", content: text, ts: Date.now() };
+    setChatMessages((m) => [...m, userMsg]);
+    setChatInput("");
+    setChatLoading(true);
+
+    try {
+      const history = chatMessages.map((m) => ({ role: m.role, content: m.content }));
+      const challengeContext = challenge
+        ? `Title: ${challenge.title}\n\nProblem:\n${challenge.prompt}`
+        : undefined;
+
+      const j = await apiPost<{ ok: true; reply: string }>("/api/chat", {
+        attemptId: attempt?.id,
+        message: text,
+        history,
+        challengeContext
+      });
+
+      setChatMessages((m) => [...m, { role: "assistant", content: j.reply, ts: Date.now() }]);
+    } catch (e: any) {
+      setChatMessages((m) => [...m, { role: "assistant", content: `Error: ${String(e?.message || e)}`, ts: Date.now() }]);
+    } finally {
+      setChatLoading(false);
+    }
+  }
+
+  function handleChatKey(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendChat();
+    }
+  }
+
   // ── Step computation ─────────────────────────────────────────────────────
 
   const step = !attempt ? 0 : attempt.status === "EVALUATED" ? 3 : attempt.status === "SUBMITTED" ? 2 : 1;
@@ -342,30 +388,39 @@ export function ChallengeAttempt({ challengeId }: { challengeId: string }) {
   // ── Render ───────────────────────────────────────────────────────────────
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "360px 1fr", gap: 14, height: "calc(100vh - 110px)" }}>
+    <div style={{ display: "grid", gridTemplateColumns: "340px 1fr 320px", gap: 14, height: "calc(100vh - 110px)" }}>
 
-      {/* ── Left panel ── */}
+      {/* ── Left panel: Problem ── */}
       <div style={{ display: "flex", flexDirection: "column", gap: 10, overflowY: "auto", paddingRight: 2 }}>
 
-        {/* Progress steps */}
-        <div className="card" style={{ padding: "14px 18px 10px" }}>
+        {/* Progress steps + Start/Status */}
+        <div className="card" style={{ padding: "14px 18px 14px" }}>
           <Steps step={step} />
-
-          {/* Start attempt CTA */}
           {!attempt ? (
             <button className="btn" style={{ width: "100%", justifyContent: "center" }} onClick={startAttempt}>
               ▶ Start Attempt
             </button>
           ) : (
-            <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
-              <span style={{
-                width: 8, height: 8, borderRadius: "50%", display: "inline-block",
-                background: attempt.status === "EVALUATED" ? "var(--green)" : attempt.status === "SUBMITTED" ? "var(--yellow)" : "var(--blue)"
-              }} />
-              <span style={{ color: "var(--text-2)", fontWeight: 600 }}>{attempt.status}</span>
-              <span style={{ color: "var(--text-3)" }}>· {attempt.id.slice(0, 8)}…</span>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
+                <span style={{
+                  width: 8, height: 8, borderRadius: "50%", display: "inline-block",
+                  background: attempt.status === "EVALUATED" ? "var(--green)" : attempt.status === "SUBMITTED" ? "var(--yellow)" : "var(--blue)"
+                }} />
+                <span style={{ color: "var(--text-2)", fontWeight: 600 }}>{attempt.status}</span>
+                <span style={{ color: "var(--text-3)" }}>· {attempt.id.slice(0, 8)}…</span>
+              </div>
+              <button
+                className="btn sm"
+                disabled={attempt.status === "EVALUATED" || evaluating}
+                onClick={submit}
+                style={{ whiteSpace: "nowrap" }}
+              >
+                {evaluating ? "Scoring…" : attempt.status === "EVALUATED" ? "✓ Done" : "Submit & Score"}
+              </button>
             </div>
           )}
+          {err && <div style={{ color: "var(--red)", marginTop: 8, fontSize: 12 }}>{err}</div>}
         </div>
 
         {/* Problem */}
@@ -393,83 +448,9 @@ export function ChallengeAttempt({ challengeId }: { challengeId: string }) {
             </div>
           )}
         </div>
-
-        {/* Workflow log */}
-        <div className="card" style={{ padding: 18, flexShrink: 0 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-            <div style={{ fontWeight: 700, fontSize: 10, letterSpacing: "0.07em", textTransform: "uppercase", color: "var(--text-3)" }}>
-              Workflow Log
-            </div>
-            <div style={{ fontSize: 11, color: "var(--text-3)" }}>{loggedEvents.length} events</div>
-          </div>
-          {!attempt && (
-            <div style={{ fontSize: 12, color: "var(--text-3)", marginBottom: 8, padding: "6px 10px", borderRadius: 8, background: "var(--bg)", border: "1px solid var(--border)" }}>
-              ↑ Start an attempt first to log events
-            </div>
-          )}
-          <textarea className="textarea" rows={4}
-            placeholder="Paste your AI prompt, describe an iteration, or add a debugging note…"
-            value={workflowNote}
-            onChange={(e) => setNote(e.target.value)}
-            disabled={!attempt}
-          />
-          <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
-            <button className="btn sm"           disabled={!attempt || !workflowNote.trim()} onClick={() => logWorkflow("prompt")}>
-              💬 Log Prompt
-            </button>
-            <button className="btn sm secondary" disabled={!attempt || !workflowNote.trim()} onClick={() => logWorkflow("iteration")}>
-              🔄 Iteration
-            </button>
-            <button className="btn sm secondary" disabled={!attempt || !workflowNote.trim()} onClick={() => logWorkflow("note")}>
-              📝 Note
-            </button>
-          </div>
-        </div>
-
-        {/* Submit + Score */}
-        <div className="card" style={{ padding: 18, flexShrink: 0 }}>
-          <div style={{ fontWeight: 700, fontSize: 10, letterSpacing: "0.07em", textTransform: "uppercase", color: "var(--text-3)", marginBottom: 12 }}>
-            Submit & Score
-          </div>
-
-          <input
-            className="input"
-            placeholder="GitHub repo or PR URL (optional)"
-            value={submissionUrl}
-            onChange={(e) => setUrl(e.target.value)}
-            disabled={!attempt || attempt.status === "EVALUATED"}
-          />
-
-          <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-            <button
-              className="btn"
-              style={{ flex: 1, justifyContent: "center" }}
-              disabled={!attempt || attempt.status === "EVALUATED"}
-              onClick={submit}
-            >
-              {attempt?.status === "SUBMITTED" || attempt?.status === "EVALUATED" ? "✓ Submitted" : "Submit"}
-            </button>
-            <button
-              className="btn secondary"
-              style={{ flex: 1, justifyContent: "center" }}
-              disabled={!attempt || evaluating}
-              onClick={evaluate}
-            >
-              {evaluating ? "Scoring…" : "Get AI Score"}
-            </button>
-          </div>
-
-          {loggedEvents.length === 0 && attempt && (
-            <div style={{ marginTop: 8, fontSize: 11, color: "var(--yellow)", padding: "6px 10px", borderRadius: 6, background: "var(--yellow-dim)", border: "1px solid rgba(245,158,11,0.2)" }}>
-              ⚠ Log at least one prompt before scoring for a meaningful result.
-            </div>
-          )}
-
-          {err && <div style={{ color: "var(--red)", marginTop: 8, fontSize: 12 }}>{err}</div>}
-        </div>
       </div>
 
-      {/* ── Right panel ── */}
+      {/* ── Middle panel: Editor ── */}
       <div style={{ display: "flex", flexDirection: "column", gap: 10, overflow: "hidden", minHeight: 0 }}>
 
         {/* Language selector */}
@@ -507,7 +488,6 @@ export function ChallengeAttempt({ challengeId }: { challengeId: string }) {
         <div className="card" style={{ padding: "8px 12px", display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
           {([
             { id: "editor", label: "⌨ Editor" },
-            { id: "events", label: `📋 Events${loggedEvents.length ? ` (${loggedEvents.length})` : ""}` },
             { id: "score",  label: `📊 Score${score ? ` · ${score.total}` : ""}` },
           ] as const).map((t) => (
             <button key={t.id} className={`btn sm ${activeTab === t.id ? "" : "ghost"}`} onClick={() => setActiveTab(t.id)}>
@@ -534,7 +514,7 @@ export function ChallengeAttempt({ challengeId }: { challengeId: string }) {
           )}
         </div>
 
-        {/* ── Editor tab ── */}
+        {/* Editor tab */}
         {activeTab === "editor" && (
           <>
             <div className="card" style={{ flex: 1, overflow: "hidden", minHeight: 0 }}>
@@ -582,7 +562,7 @@ export function ChallengeAttempt({ challengeId }: { challengeId: string }) {
                   : <div style={{ color: "var(--text-3)" }}>
                       {lang.runnable
                         ? "No output yet. Click ▶ Run."
-                        : `${lang.label} execution coming soon — submit your repo URL to get scored.`}
+                        : `${lang.label} execution coming soon.`}
                     </div>
                 }
               </div>
@@ -590,42 +570,7 @@ export function ChallengeAttempt({ challengeId }: { challengeId: string }) {
           </>
         )}
 
-        {/* ── Events tab ── */}
-        {activeTab === "events" && (
-          <div className="card" style={{ padding: 18, flex: 1, overflow: "auto", minHeight: 0 }}>
-            <div style={{ fontWeight: 700, marginBottom: 14, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span>Logged Events</span>
-              <span style={{ fontSize: 12, color: "var(--text-3)", fontWeight: 400 }}>{loggedEvents.length} total</span>
-            </div>
-            {loggedEvents.length === 0 ? (
-              <div style={{ color: "var(--text-3)", textAlign: "center", padding: "40px 0" }}>
-                <div style={{ fontSize: 32, marginBottom: 10 }}>📋</div>
-                <div style={{ fontSize: 13 }}>No events yet.</div>
-                <div style={{ fontSize: 12, marginTop: 4 }}>Use the Workflow Log on the left to capture your AI prompts and iterations.</div>
-              </div>
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {loggedEvents.map((ev, i) => {
-                  const typeColor = ev.type === "prompt" ? "var(--blue)" : ev.type === "iteration" ? "var(--green)" : "var(--text-3)";
-                  const typeIcon  = ev.type === "prompt" ? "💬" : ev.type === "iteration" ? "🔄" : "📝";
-                  return (
-                    <div key={i} style={{ padding: 12, borderRadius: 10, border: "1px solid var(--border)", background: "var(--bg)" }}>
-                      <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6 }}>
-                        <span style={{ fontSize: 13 }}>{typeIcon}</span>
-                        <span style={{ color: typeColor, fontWeight: 700, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em" }}>{ev.type}</span>
-                        <span style={{ color: "var(--text-3)", fontSize: 11 }}>#{i + 1}</span>
-                        <span style={{ color: "var(--text-3)", fontSize: 11, marginLeft: "auto" }}>{fmt(ev.ts)}</span>
-                      </div>
-                      <div style={{ fontSize: 13, color: "var(--text-2)", whiteSpace: "pre-wrap", lineHeight: 1.6 }}>{ev.text}</div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ── Score tab ── */}
+        {/* Score tab */}
         {activeTab === "score" && (
           <div className="card" style={{ padding: 20, flex: 1, overflow: "auto", minHeight: 0 }}>
             {evaluating && (
@@ -644,14 +589,103 @@ export function ChallengeAttempt({ challengeId }: { challengeId: string }) {
                 <div style={{ fontSize: 40, marginBottom: 14 }}>📊</div>
                 <div style={{ fontWeight: 700, marginBottom: 6 }}>No score yet</div>
                 <div style={{ fontSize: 13, lineHeight: 1.6 }}>
-                  Start an attempt, log your AI prompts and iterations, then click <strong>Get AI Score</strong> on the left.
+                  Start an attempt, chat with the AI assistant, then click <strong>Submit & Score</strong>.
                 </div>
               </div>
             )}
           </div>
         )}
-
       </div>
+
+      {/* ── Right panel: AI Chat ── */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 0, overflow: "hidden", minHeight: 0 }} className="card">
+
+        {/* Chat header */}
+        <div style={{
+          padding: "12px 16px",
+          borderBottom: "1px solid var(--border)",
+          flexShrink: 0,
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+        }}>
+          <div style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--green)", flexShrink: 0 }} />
+          <div style={{ fontWeight: 700, fontSize: 13 }}>AI Assistant</div>
+          <div style={{ fontSize: 11, color: "var(--text-3)", marginLeft: "auto" }}>
+            {chatMessages.filter(m => m.role === "user").length} prompts
+          </div>
+        </div>
+
+        {/* Messages */}
+        <div style={{ flex: 1, overflowY: "auto", padding: "14px 12px", display: "flex", flexDirection: "column", gap: 12 }}>
+          {chatMessages.length === 0 ? (
+            <div style={{ color: "var(--text-3)", textAlign: "center", padding: "40px 16px" }}>
+              <div style={{ fontSize: 28, marginBottom: 10 }}>💬</div>
+              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6, color: "var(--text-2)" }}>Ask the AI anything</div>
+              <div style={{ fontSize: 12, lineHeight: 1.6 }}>
+                All your prompts are automatically captured and used to score your AI usage quality.
+              </div>
+            </div>
+          ) : (
+            chatMessages.map((msg, i) => <ChatBubble key={i} msg={msg} />)
+          )}
+          {chatLoading && (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0" }}>
+              <div style={{ display: "flex", gap: 4 }}>
+                {[0, 1, 2].map((i) => (
+                  <div key={i} style={{
+                    width: 6, height: 6, borderRadius: "50%",
+                    background: "var(--text-3)",
+                    animation: `pulse 1.2s ease-in-out ${i * 0.2}s infinite`,
+                  }} />
+                ))}
+              </div>
+              <span style={{ fontSize: 12, color: "var(--text-3)" }}>Thinking…</span>
+            </div>
+          )}
+          <div ref={chatEndRef} />
+        </div>
+
+        {/* Input */}
+        <div style={{ padding: "10px 12px", borderTop: "1px solid var(--border)", flexShrink: 0 }}>
+          {!attempt && (
+            <div style={{ fontSize: 11, color: "var(--text-3)", marginBottom: 8, padding: "5px 8px", borderRadius: 6, background: "var(--bg)", border: "1px solid var(--border)", textAlign: "center" }}>
+              Start an attempt to enable AI chat
+            </div>
+          )}
+          <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+            <textarea
+              className="textarea"
+              rows={3}
+              placeholder={attempt ? "Ask about the problem, request hints, debug together… (Enter to send)" : "Start an attempt first"}
+              value={chatInput}
+              onChange={(e) => setChatInput(e.target.value)}
+              onKeyDown={handleChatKey}
+              disabled={!attempt || chatLoading}
+              style={{ flex: 1, resize: "none", fontSize: 13 }}
+            />
+            <button
+              className="btn"
+              onClick={sendChat}
+              disabled={!attempt || !chatInput.trim() || chatLoading}
+              style={{ padding: "9px 12px", alignSelf: "flex-end", flexShrink: 0 }}
+              title="Send (Enter)"
+            >
+              ↑
+            </button>
+          </div>
+          <div style={{ fontSize: 10, color: "var(--text-3)", marginTop: 5 }}>
+            Shift+Enter for new line · prompts auto-logged
+          </div>
+        </div>
+      </div>
+
+      <style>{`
+        @keyframes pulse {
+          0%, 100% { opacity: 0.3; transform: scale(0.8); }
+          50% { opacity: 1; transform: scale(1); }
+        }
+      `}</style>
     </div>
   );
 }

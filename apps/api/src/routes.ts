@@ -7,6 +7,7 @@ import { requireAdmin, requireUser, getUser } from "./auth.js";
 import { RunStore } from "./runStore.js";
 import { nanoid } from "nanoid";
 import { spawn } from "node:child_process";
+import Anthropic from "@anthropic-ai/sdk";
 
 export const apiRouter = Router();
 
@@ -257,6 +258,69 @@ apiRouter.get("/attempts/:attemptId/evaluate/stream", async (req, res) => {
 
   send("done", { ok: true, attemptId: saved.id, total: saved.scoreTotal });
   res.end();
+});
+
+// ── AI Chat ──────────────────────────────────────────────────────────────────
+
+const ChatSchema = z.object({
+  attemptId: z.string().min(6).optional(),
+  message: z.string().min(1).max(8000),
+  history: z.array(z.object({
+    role: z.enum(["user", "assistant"]),
+    content: z.string()
+  })).max(40).default([]),
+  challengeContext: z.string().max(4000).optional()
+});
+
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+
+apiRouter.post("/chat", async (req, res) => {
+  const parsed = ChatSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+
+  const user = await getUser(req).catch(() => null);
+
+  const { attemptId, message, history, challengeContext } = parsed.data;
+
+  const systemPrompt = [
+    "You are a helpful coding assistant inside BitCode, an AI-native developer challenge platform.",
+    "Your role is to help the user understand and solve the coding challenge they are working on.",
+    "Be concise and practical. Prefer code examples when helpful.",
+    challengeContext ? `\nChallenge context:\n${challengeContext}` : ""
+  ].filter(Boolean).join("\n");
+
+  try {
+    const messages: Anthropic.MessageParam[] = [
+      ...history.map((h) => ({ role: h.role, content: h.content } as Anthropic.MessageParam)),
+      { role: "user", content: message }
+    ];
+
+    const response = await anthropic.messages.create({
+      model: "claude-opus-4-5",
+      max_tokens: 1024,
+      system: systemPrompt,
+      messages
+    });
+
+    const reply = response.content
+      .filter((b) => b.type === "text")
+      .map((b) => (b as any).text)
+      .join("");
+
+    // Auto-log the user message as a prompt event if we have an attempt
+    if (attemptId && user) {
+      const attempt = await db.attempt.findFirst({ where: { id: attemptId, userId: (user as any).id } });
+      if (attempt) {
+        await db.promptEvent.create({
+          data: { attemptId, type: "prompt", text: message, meta: { source: "chat", reply } as any }
+        }).catch(() => {});
+      }
+    }
+
+    res.json({ ok: true, reply });
+  } catch (e: any) {
+    res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
 });
 
 apiRouter.get("/leaderboard", async (_req, res) => {
