@@ -480,33 +480,86 @@ apiRouter.get("/bounties/:bountyId", async (req, res) => {
 });
 
 // --- Docker execution (Python v1) ---
-// ── Piston language map ───────────────────────────────────────────────────────
-// Maps our lang IDs to Piston's language identifiers.
-const PISTON_LANG: Record<string, string> = {
-  python:     "python",
-  javascript: "javascript",
-  typescript: "typescript",
-  go:         "go",
-  rust:       "rust",
-  java:       "java",
-  cpp:        "c++",
-  csharp:     "csharp",
-  ruby:       "ruby",
-  php:        "php",
-  shell:      "bash",
-  sql:        "sqlite3",
+// ── Execution backends ────────────────────────────────────────────────────────
+//
+//  EXECUTION_PROVIDER=wandbox  (default, zero-config, dev + Apple Silicon)
+//  EXECUTION_PROVIDER=piston   (self-hosted Linux/prod, set PISTON_URL too)
+//
+// Wandbox: free, no auth, no Docker, works on any platform.
+// Piston:  self-host on Linux x86 via `docker run --privileged ghcr.io/engineer-man/piston`
+
+const WANDBOX_COMPILER: Record<string, { compiler: string; options?: string }> = {
+  python:     { compiler: "cpython-3.12.7" },
+  javascript: { compiler: "nodejs-20.17.0" },
+  typescript: { compiler: "typescript-5.6.2" },
+  go:         { compiler: "go-1.23.2" },
+  rust:       { compiler: "rust-1.82.0" },
+  java:       { compiler: "openjdk-jdk-22+36" },
+  cpp:        { compiler: "gcc-head", options: "warning,c++17" },
+  csharp:     { compiler: "mono-6.12.0.199" },
+  ruby:       { compiler: "ruby-4.0.2" },
+  php:        { compiler: "php-8.3.12" },
+  shell:      { compiler: "bash" },
+  sql:        { compiler: "sqlite-3.46.1" },
 };
 
-const SUPPORTED_LANGS = Object.keys(PISTON_LANG) as [string, ...string[]];
+const PISTON_LANG: Record<string, string> = {
+  python: "python", javascript: "javascript", typescript: "typescript",
+  go: "go", rust: "rust", java: "java", cpp: "c++", csharp: "csharp",
+  ruby: "ruby", php: "php", shell: "bash", sql: "sqlite3",
+};
+
+const SUPPORTED_LANGS = Object.keys(WANDBOX_COMPILER) as [string, ...string[]];
+
+async function executeWandbox(language: string, code: string, timeoutMs: number): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+  const cfg = WANDBOX_COMPILER[language] ?? { compiler: language };
+  const body: any = { code, compiler: cfg.compiler };
+  if (cfg.options) body.options = cfg.options;
+
+  const resp = await fetch("https://wandbox.org/api/compile.json", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(timeoutMs + 5000),
+  });
+
+  if (!resp.ok) throw new Error(`Wandbox error ${resp.status}: ${await resp.text().catch(() => "")}`);
+
+  const data = await resp.json() as any;
+  const stdout = [data.program_output, data.compiler_output].filter(Boolean).join("\n").trimEnd();
+  const stderr = [data.program_error,  data.compiler_error ].filter(Boolean).join("\n").trimEnd();
+  const exitCode = Number(data.status ?? (stderr ? 1 : 0));
+  return { stdout, stderr, exitCode };
+}
+
+async function executePiston(language: string, files: { path: string; content: string }[], timeoutMs: number): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+  const pistonUrl = String(process.env.PISTON_URL || "http://localhost:2000/api/v2");
+  const resp = await fetch(`${pistonUrl}/execute`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      language: PISTON_LANG[language] ?? language,
+      version: "*",
+      files: files.map((f) => ({ name: f.path, content: f.content })),
+      run_timeout: timeoutMs,
+      compile_timeout: 10000,
+    }),
+    signal: AbortSignal.timeout(timeoutMs + 5000),
+  });
+  if (!resp.ok) throw new Error(`Piston error ${resp.status}: ${await resp.text().catch(() => "")}`);
+  const data = await resp.json() as any;
+  const run = data.run ?? data;
+  const compile = data.compile ?? null;
+  const stdout = [compile?.stdout, run.stdout].filter(Boolean).join("\n").trimEnd();
+  const stderr = [compile?.stderr, run.stderr].filter(Boolean).join("\n").trimEnd();
+  return { stdout, stderr, exitCode: run.code ?? 0 };
+}
 
 const RunSchema = z.object({
-  language: z.enum(SUPPORTED_LANGS).default("python"),
-  entry:    z.string().default("main.py"),
+  language:  z.enum(SUPPORTED_LANGS).default("python"),
+  entry:     z.string().default("main.py"),
   timeoutMs: z.number().int().min(1000).max(30000).default(10000),
-  files: z.array(z.object({
-    path:    z.string().min(1).max(200),
-    content: z.string().max(200000)
-  })).min(1)
+  files:     z.array(z.object({ path: z.string().min(1).max(200), content: z.string().max(200000) })).min(1)
 });
 
 apiRouter.post("/run", async (req, res) => {
@@ -519,62 +572,29 @@ apiRouter.post("/run", async (req, res) => {
   const runId = nanoid(10);
   RunStore.create(runId);
 
-  const pistonUrl = String(process.env.PISTON_URL || "https://emkc.org/api/v2/piston");
-  const pistonLang = PISTON_LANG[parsed.data.language] ?? parsed.data.language;
+  const provider = String(process.env.EXECUTION_PROVIDER || "wandbox");
 
-  // Run Piston call in background so we can return runId immediately
   (async () => {
     try {
-      const body = {
-        language: pistonLang,
-        version:  "*",
-        files:    parsed.data.files.map((f) => ({ name: f.path, content: f.content })),
-        run_timeout:     parsed.data.timeoutMs,
-        compile_timeout: 10000,
-      };
+      let result: { stdout: string; stderr: string; exitCode: number };
 
-      const resp = await fetch(`${pistonUrl}/execute`, {
-        method:  "POST",
-        headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify(body),
-        signal:  AbortSignal.timeout(parsed.data.timeoutMs + 5000),
-      });
-
-      if (!resp.ok) {
-        const err = await resp.text().catch(() => `HTTP ${resp.status}`);
-        RunStore.appendLog(runId, `stderr: Execution service error: ${err}`);
-        RunStore.setError(runId, `piston error: ${resp.status}`);
-        return;
+      if (provider === "piston") {
+        result = await executePiston(parsed.data.language, parsed.data.files, parsed.data.timeoutMs);
+      } else {
+        // Wandbox takes a single source file
+        result = await executeWandbox(parsed.data.language, parsed.data.files[0].content, parsed.data.timeoutMs);
       }
 
-      const data = await resp.json() as any;
-      const run     = data.run     ?? data;
-      const compile = data.compile ?? null;
-
-      // Surface compile errors (e.g. Java, C++, Rust, TypeScript)
-      if (compile?.stderr) {
-        for (const line of compile.stderr.split("\n").filter(Boolean)) {
-          RunStore.appendLog(runId, `stderr: ${line}`);
-        }
+      for (const line of result.stdout.split("\n")) {
+        if (line.trim()) RunStore.appendLog(runId, line);
       }
-      if (compile?.stdout) {
-        for (const line of compile.stdout.split("\n").filter(Boolean)) {
-          RunStore.appendLog(runId, `stdout: ${line}`);
+      if (result.stderr) {
+        for (const line of result.stderr.split("\n")) {
+          if (line.trim()) RunStore.appendLog(runId, `stderr: ${line}`);
         }
       }
 
-      // Stream run output line by line
-      const output = (run.stdout || "") + (run.stderr ? `\nstderr: ${run.stderr}` : "");
-      for (const line of output.split("\n")) {
-        if (line) RunStore.appendLog(runId, line);
-      }
-
-      RunStore.setResult(runId, {
-        exitCode: run.code ?? 0,
-        stdout:   run.stdout  ?? "",
-        stderr:   run.stderr  ?? "",
-        timeMs:   run.wall_time ?? 0,
-      });
+      RunStore.setResult(runId, { exitCode: result.exitCode, stdout: result.stdout, stderr: result.stderr });
     } catch (e: any) {
       RunStore.appendLog(runId, `stderr: ${String(e?.message || e)}`);
       RunStore.setError(runId, String(e?.message || e));
