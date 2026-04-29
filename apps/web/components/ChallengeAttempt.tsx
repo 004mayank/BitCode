@@ -162,22 +162,94 @@ function Steps({ step }: { step: number }) {
   );
 }
 
-function ChatBubble({ msg }: { msg: ChatMessage }) {
+// Split message into text and code-block segments
+type Segment = { type: "text"; content: string } | { type: "code"; lang: string; content: string };
+
+function parseSegments(text: string): Segment[] {
+  const segments: Segment[] = [];
+  const re = /```(\w*)\n?([\s\S]*?)```/g;
+  let last = 0, m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > last) segments.push({ type: "text", content: text.slice(last, m.index) });
+    segments.push({ type: "code", lang: m[1] || "", content: m[2].trimEnd() });
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) segments.push({ type: "text", content: text.slice(last) });
+  return segments;
+}
+
+function ChatBubble({ msg, onInsert }: { msg: ChatMessage; onInsert?: (code: string, lang: string) => void }) {
   const isUser = msg.role === "user";
+  const segments = isUser ? null : parseSegments(msg.content);
+  const hasCode = segments?.some((s) => s.type === "code");
+
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: isUser ? "flex-end" : "flex-start", gap: 3 }}>
-      <div style={{
-        maxWidth: "88%", padding: "9px 13px",
-        borderRadius: isUser ? "14px 14px 4px 14px" : "14px 14px 14px 4px",
-        background: isUser ? "var(--blue)" : "var(--card)",
-        color: isUser ? "#fff" : "var(--text-1)",
-        fontSize: 13, lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-word",
-        border: isUser ? "none" : "1px solid var(--border)",
-      }}>
-        {msg.content}
-      </div>
+      {isUser ? (
+        <div style={{
+          maxWidth: "88%", padding: "9px 13px",
+          borderRadius: "14px 14px 4px 14px",
+          background: "var(--blue)", color: "#fff",
+          fontSize: 13, lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-word",
+        }}>
+          {msg.content}
+        </div>
+      ) : (
+        <div style={{ maxWidth: "96%", display: "flex", flexDirection: "column", gap: 6 }}>
+          {segments!.map((seg, i) =>
+            seg.type === "text" ? (
+              seg.content.trim() ? (
+                <div key={i} style={{
+                  padding: "9px 13px", borderRadius: "14px 14px 14px 4px",
+                  background: "var(--card)", color: "var(--text-1)",
+                  fontSize: 13, lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-word",
+                  border: "1px solid var(--border)",
+                }}>
+                  {seg.content.trim()}
+                </div>
+              ) : null
+            ) : (
+              <div key={i} style={{ borderRadius: 10, overflow: "hidden", border: "1px solid var(--border)" }}>
+                {/* Code block header */}
+                <div style={{
+                  display: "flex", alignItems: "center", justifyContent: "space-between",
+                  padding: "5px 12px", background: "rgba(255,255,255,0.04)",
+                  borderBottom: "1px solid var(--border)",
+                }}>
+                  <span style={{ fontSize: 11, color: "var(--text-3)", fontFamily: "monospace" }}>
+                    {seg.lang || "code"}
+                  </span>
+                  {onInsert && (
+                    <button
+                      onClick={() => onInsert(seg.content, seg.lang)}
+                      className="btn sm"
+                      style={{ fontSize: 11, padding: "2px 10px", gap: 4 }}
+                      title="Insert this code into the editor"
+                    >
+                      ↗ Insert into editor
+                    </button>
+                  )}
+                </div>
+                {/* Code */}
+                <pre style={{
+                  margin: 0, padding: "10px 12px",
+                  background: "#0d0d0d",
+                  color: "var(--text-1)",
+                  fontSize: 12, lineHeight: 1.6,
+                  overflowX: "auto",
+                  fontFamily: "ui-monospace, 'Cascadia Code', 'Fira Code', monospace",
+                  whiteSpace: "pre",
+                }}>
+                  {seg.content}
+                </pre>
+              </div>
+            )
+          )}
+        </div>
+      )}
       <div style={{ fontSize: 10, color: "var(--text-3)", paddingInline: 4 }}>
         {isUser ? "You" : "AI"} · {new Date(msg.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+        {hasCode && !isUser && <span style={{ color: "var(--blue)", marginLeft: 6 }}>· code snippet</span>}
       </div>
     </div>
   );
@@ -729,7 +801,23 @@ export function ChallengeAttempt({ challengeId }: { challengeId: string }) {
                   </div>
                 </div>
               ) : (
-                chatMessages.map((msg, i) => <ChatBubble key={i} msg={msg} />)
+                chatMessages.map((msg, i) => (
+                <ChatBubble
+                  key={i}
+                  msg={msg}
+                  onInsert={(code, langHint) => {
+                    // Try to match the code fence language to one of our lang ids
+                    const matched = LANGUAGES.find(
+                      (l) => l.id === langHint.toLowerCase() ||
+                             l.label.toLowerCase() === langHint.toLowerCase() ||
+                             l.ext === langHint.toLowerCase()
+                    );
+                    if (matched) setLang(matched);
+                    setCode(code);
+                    setActiveTab("editor");
+                  }}
+                />
+              ))
               )}
               {chatLoading && (
                 <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0" }}>
