@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 
 const NAV = [
-  { href: "/", label: "Dashboard", icon: "⊞" },
+  { href: "/dashboard", label: "Dashboard", icon: "⊞" },
   { href: "/challenges", label: "Challenges", icon: "⚡" },
   { href: "/bounties", label: "Bounties", icon: "◎" },
   { href: "/leaderboard", label: "Leaderboard", icon: "▲" },
@@ -134,7 +134,7 @@ export function SidebarNav() {
   const isDark = useEffectiveTheme();
 
   function isActive(href: string) {
-    if (href === "/") return path === "/";
+    if (href === "/dashboard") return path === "/dashboard";
     return path.startsWith(href);
   }
 
