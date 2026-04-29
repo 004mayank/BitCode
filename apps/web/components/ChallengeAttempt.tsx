@@ -514,7 +514,10 @@ export function ChallengeAttempt({ challengeId }: { challengeId: string }) {
     try {
       await apiPost("/api/attempts/submit", { attemptId: attempt.id, submissionUrl: null });
       setAttempt({ ...attempt, status: "SUBMITTED" });
-      const resp = await fetch(`${API_BASE}/api/attempts/${attempt.id}/evaluate/stream`);
+      const guestId = (() => { try { return localStorage.getItem("bc-guest-id") || ""; } catch { return ""; } })();
+      const resp = await fetch(`${API_BASE}/api/attempts/${attempt.id}/evaluate/stream`, {
+        headers: guestId ? { "X-Guest-Id": guestId } : {}
+      });
       const reader = resp.body?.getReader();
       const dec = new TextDecoder();
       let buf = "", event = "";

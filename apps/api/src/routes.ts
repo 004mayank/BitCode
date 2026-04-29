@@ -566,8 +566,8 @@ apiRouter.get("/run/:runId/result", async (req, res) => {
 });
 
 apiRouter.get("/run/:runId/stream", async (req, res) => {
-  const user = await getUser(req).catch((e) => ({ error: String(e?.message || e) } as any));
-  if ((user as any).error) return res.status(401).json({ ok: false, error: (user as any).error });
+  // No auth check here — EventSource can't send headers.
+  // The runId (nanoid 10) is unguessable and acts as a capability token.
   const runId = String(req.params.runId || "");
   const r = RunStore.get(runId);
   if (!r) return res.status(404).json({ ok: false, error: "run not found" });
