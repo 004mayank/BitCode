@@ -6,6 +6,103 @@ import dynamic from "next/dynamic";
 
 const MonacoEditor = dynamic(() => import("@monaco-editor/react"), { ssr: false });
 
+// ── In-browser SQL runner (sql.js / SQLite WASM) ──────────────────────────────
+// Strips PostgreSQL-only syntax so the DDL runs in SQLite.
+
+type SqlResult = { columns: string[]; rows: (string | number | null)[][] };
+
+function pgToSqlite(sql: string): string {
+  return sql
+    .replace(/BIGSERIAL/gi, "INTEGER")
+    .replace(/SERIAL/gi, "INTEGER")
+    .replace(/TIMESTAMPTZ/gi, "TEXT")
+    .replace(/TIMESTAMP WITH TIME ZONE/gi, "TEXT")
+    .replace(/TIMESTAMP/gi, "TEXT")
+    .replace(/BOOLEAN/gi, "INTEGER")
+    .replace(/JSONB/gi, "TEXT")
+    .replace(/JSON/gi, "TEXT")
+    .replace(/BIGINT/gi, "INTEGER")
+    .replace(/DEFAULT now\(\)/gi, "DEFAULT CURRENT_TIMESTAMP")
+    .replace(/REFERENCES\s+\w+\s*\([^)]+\)\s*(ON DELETE \w+)?/gi, "")
+    .replace(/CREATE\s+INDEX\s+(?:IF\s+NOT\s+EXISTS\s+)?\w+\s+ON\s+\w+\s*\([^;]+\);/gi, "")
+    .replace(/CREATE\s+UNIQUE\s+INDEX[^;]+;/gi, "")
+    .replace(/CREATE\s+EXTENSION[^;]+;/gi, "");
+}
+
+let _sqlJsPromise: Promise<any> | null = null;
+
+async function loadSqlJs() {
+  if (_sqlJsPromise) return _sqlJsPromise;
+  _sqlJsPromise = (async () => {
+    // Load sql.js from CDN to avoid webpack/WASM bundling issues
+    if (typeof window === "undefined") throw new Error("SQL runner requires browser");
+    if (!(window as any).initSqlJs) {
+      await new Promise<void>((resolve, reject) => {
+        const script = document.createElement("script");
+        script.src = "https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/sql-wasm.js";
+        script.onload = () => resolve();
+        script.onerror = () => reject(new Error("Failed to load sql.js from CDN"));
+        document.head.appendChild(script);
+      });
+    }
+    return (window as any).initSqlJs({
+      locateFile: () =>
+        "https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/sql-wasm.wasm",
+    });
+  })();
+  return _sqlJsPromise;
+}
+
+async function runSqlInBrowser(
+  userSql: string,
+  setupSql: string | null
+): Promise<{ results: SqlResult[]; error: string | null; logs: string[] }> {
+  const logs: string[] = [];
+  try {
+    const SQL = await loadSqlJs();
+    const db = new SQL.Database();
+    logs.push("SQLite sandbox ready.");
+
+    if (setupSql) {
+      const safe = pgToSqlite(setupSql);
+      // Split on ; and run each statement individually
+      const stmts = safe.split(";").map((s) => s.trim()).filter(Boolean);
+      let loaded = 0;
+      for (const stmt of stmts) {
+        try { db.run(stmt + ";"); loaded++; } catch { /* skip DDL incompatibilities */ }
+      }
+      logs.push(`Schema + sample data loaded (${loaded} statements).`);
+    }
+
+    // Run the user's query (may be multiple statements separated by ;)
+    const results: SqlResult[] = [];
+    const stmts = userSql.split(";").map((s) => s.trim()).filter(Boolean);
+    for (const stmt of stmts) {
+      try {
+        const res = db.exec(stmt + ";");
+        if (res.length > 0) {
+          for (const r of res) {
+            results.push({
+              columns: r.columns,
+              rows: r.values as (string | number | null)[][],
+            });
+          }
+        } else {
+          // DML/DDL with no result set
+          logs.push(`OK: ${stmt.slice(0, 60)}…`);
+        }
+      } catch (e: any) {
+        return { results, error: e.message, logs };
+      }
+    }
+    db.close();
+    logs.push(`Returned ${results.reduce((n, r) => n + r.rows.length, 0)} row(s).`);
+    return { results, error: null, logs };
+  } catch (e: any) {
+    return { results: [], error: e.message, logs };
+  }
+}
+
 // ── Language registry ─────────────────────────────────────────────────────────
 
 type Lang = { id: string; label: string; icon: string; ext: string; runnable: boolean; starter: string };
@@ -423,10 +520,11 @@ export function ChallengeAttempt({ challengeId }: { challengeId: string }) {
     return m;
   });
 
-  const [runId, setRunId]         = useState<string | null>(null);
-  const [runLogs, setRunLogs]     = useState<string[]>([]);
-  const [running, setRunning]     = useState(false);
-  const [runResult, setRunResult] = useState<any | null>(null);
+  const [runId, setRunId]           = useState<string | null>(null);
+  const [runLogs, setRunLogs]       = useState<string[]>([]);
+  const [running, setRunning]       = useState(false);
+  const [runResult, setRunResult]   = useState<any | null>(null);
+  const [sqlResults, setSqlResults] = useState<SqlResult[]>([]);
 
   const [score, setScore]           = useState<ScoreBreakdown | null>(null);
   const [evalLogs, setEvalLogs]     = useState<string[]>([]);
@@ -544,7 +642,27 @@ export function ChallengeAttempt({ challengeId }: { challengeId: string }) {
 
   async function runCode() {
     if (!lang.runnable || running) return;
-    setErr(null); setRunLogs([]); setRunResult(null); setRunning(true);
+    setErr(null); setRunLogs([]); setRunResult(null); setSqlResults([]); setRunning(true);
+
+    // ── SQL: run in-browser via sql.js (SQLite sandbox) ──────────────────
+    if (lang.id === "sql") {
+      const { results, error, logs } = await runSqlInBrowser(
+        code,
+        challenge?.starterSchema ?? null
+      );
+      setRunLogs(logs);
+      if (error) {
+        setRunLogs((l) => [...l, `Error: ${error}`]);
+        setRunResult({ status: "error", exitCode: 1 });
+      } else {
+        setSqlResults(results);
+        setRunResult({ status: "done", exitCode: 0 });
+      }
+      setRunning(false);
+      return;
+    }
+
+    // ── Other languages: send to backend runner ───────────────────────────
     try {
       const j = await apiPost<{ ok: true; runId: string }>("/api/run", {
         language: lang.id, entry: `main.${lang.ext}`,
@@ -758,21 +876,80 @@ export function ChallengeAttempt({ challengeId }: { challengeId: string }) {
             <div className="card" style={{ flexShrink: 0, overflow: "hidden" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", borderBottom: "1px solid var(--border)" }}>
                 <div style={{ fontWeight: 700, fontSize: 10, letterSpacing: "0.07em", textTransform: "uppercase", color: "var(--text-3)" }}>
-                  Console {running && <span style={{ color: "var(--blue)" }}>· running…</span>}
-                  {runResult && <span style={{ color: runResult.status === "done" ? "var(--green)" : "var(--red)", marginLeft: 6 }}>· exit {runResult.exitCode ?? (runResult.status === "done" ? 0 : 1)}</span>}
+                  {lang.id === "sql" ? "Query Results" : "Console"}
+                  {running && <span style={{ color: "var(--blue)", marginLeft: 6 }}>· running…</span>}
+                  {runResult && <span style={{ color: runResult.status === "done" ? "var(--green)" : "var(--red)", marginLeft: 6 }}>
+                    {runResult.status === "done" ? `· ${sqlResults.reduce((n, r) => n + r.rows.length, 0)} row(s)` : "· error"}
+                  </span>}
                 </div>
                 <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                   {runId && <span className="mono" style={{ fontSize: 10, color: "var(--text-3)" }}>{runId.slice(0, 8)}</span>}
-                  {(runLogs.length > 0 || runResult) && (
-                    <button className="btn sm ghost" onClick={() => { setRunLogs([]); setRunResult(null); setRunId(null); }} style={{ fontSize: 10, padding: "1px 6px" }}>Clear</button>
+                  {(runLogs.length > 0 || runResult || sqlResults.length > 0) && (
+                    <button className="btn sm ghost" onClick={() => { setRunLogs([]); setRunResult(null); setRunId(null); setSqlResults([]); }} style={{ fontSize: 10, padding: "1px 6px" }}>Clear</button>
                   )}
                 </div>
               </div>
-              <div ref={consoleRef} className="mono" style={{ fontSize: 12, color: "var(--text-2)", padding: "10px 12px", maxHeight: 140, overflowY: "auto" }}>
-                {runLogs.length > 0
-                  ? runLogs.map((l, i) => <div key={i} style={{ lineHeight: 1.6 }}>{l}</div>)
-                  : <div style={{ color: "var(--text-3)" }}>No output yet. Click ▶ Run.</div>}
-              </div>
+
+              {/* SQL results: render as table(s) */}
+              {lang.id === "sql" && sqlResults.length > 0 ? (
+                <div style={{ maxHeight: 240, overflowY: "auto" }}>
+                  {sqlResults.map((res, ri) => (
+                    <div key={ri}>
+                      {sqlResults.length > 1 && (
+                        <div style={{ padding: "4px 12px", fontSize: 10, color: "var(--text-3)", borderBottom: "1px solid var(--border)" }}>
+                          Result set {ri + 1}
+                        </div>
+                      )}
+                      <div style={{ overflowX: "auto" }}>
+                        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                          <thead>
+                            <tr style={{ background: "var(--bg)" }}>
+                              {res.columns.map((col) => (
+                                <th key={col} style={{
+                                  padding: "6px 12px", textAlign: "left", fontWeight: 700,
+                                  color: "var(--text-3)", borderBottom: "1px solid var(--border)",
+                                  whiteSpace: "nowrap", fontFamily: "monospace", fontSize: 11,
+                                }}>
+                                  {col}
+                                </th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {res.rows.map((row, i) => (
+                              <tr key={i} style={{ borderBottom: "1px solid var(--border)", background: i % 2 === 0 ? "transparent" : "var(--bg)" }}>
+                                {row.map((cell, j) => (
+                                  <td key={j} style={{
+                                    padding: "5px 12px", color: cell === null ? "var(--text-3)" : "var(--text-1)",
+                                    fontFamily: "monospace", fontSize: 12, whiteSpace: "nowrap",
+                                  }}>
+                                    {cell === null ? "NULL" : String(cell)}
+                                  </td>
+                                ))}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      {res.rows.length === 0 && (
+                        <div style={{ padding: "10px 12px", color: "var(--text-3)", fontSize: 12 }}>No rows returned.</div>
+                      )}
+                    </div>
+                  ))}
+                  {/* Logs below the table */}
+                  {runLogs.length > 0 && (
+                    <div ref={consoleRef} className="mono" style={{ fontSize: 11, color: "var(--text-3)", padding: "6px 12px", borderTop: "1px solid var(--border)" }}>
+                      {runLogs.map((l, i) => <div key={i}>{l}</div>)}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div ref={consoleRef} className="mono" style={{ fontSize: 12, color: "var(--text-2)", padding: "10px 12px", maxHeight: 140, overflowY: "auto" }}>
+                  {runLogs.length > 0
+                    ? runLogs.map((l, i) => <div key={i} style={{ lineHeight: 1.6, color: l.startsWith("Error") ? "var(--red)" : undefined }}>{l}</div>)
+                    : <div style={{ color: "var(--text-3)" }}>No output yet. Click ▶ Run.</div>}
+                </div>
+              )}
             </div>
           </>
         )}

@@ -5179,39 +5179,67 @@ ACCEPTANCE CRITERIA
         correctness: "Partitioning correct; pg_partman configured; pruning verified; 10x speedup achieved.",
         aiUsage: "Uses AI to write the pg_partman configuration and data migration batching script."
       },
-      starterSchema: `-- ─── Database Schema ──────────────────────────────────────────────────────
--- The events table (500M rows) you need to partition by month.
+      starterSchema: `-- ════════════════════════════════════════════════════════════════════════
+-- SCHEMA  (PostgreSQL — production table definition)
+-- ════════════════════════════════════════════════════════════════════════
 
 CREATE TABLE events (
-  id          BIGSERIAL    PRIMARY KEY,
-  user_id     BIGINT       NOT NULL,
-  event_type  TEXT         NOT NULL,   -- e.g. 'page_view', 'click', 'purchase'
-  properties  JSONB,
-  created_at  TIMESTAMPTZ  NOT NULL DEFAULT now()
+  id          BIGSERIAL   PRIMARY KEY,
+  user_id     BIGINT      NOT NULL,
+  event_type  TEXT        NOT NULL,  -- 'page_view' | 'click' | 'purchase' | 'signup'
+  properties  TEXT,                  -- JSON string of event metadata
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Existing indexes (must be recreated on each partition after migration)
-CREATE INDEX idx_events_user_id   ON events (user_id);
-CREATE INDEX idx_events_type      ON events (event_type, created_at DESC);
-CREATE INDEX idx_events_created   ON events (created_at DESC);
+CREATE INDEX idx_events_user_id  ON events (user_id);
+CREATE INDEX idx_events_type     ON events (event_type, created_at DESC);
+CREATE INDEX idx_events_created  ON events (created_at DESC);
 
--- ─── Slow query to benchmark against (single-month aggregation) ───────────
--- Currently takes ~45 seconds; target is < 4 seconds after partitioning.
+-- Production size: ~500 000 000 rows, ~180 GB, date range 2022-01-01 → present
+
+-- ════════════════════════════════════════════════════════════════════════
+-- SAMPLE DATA  (24 rows — loaded into the in-browser sandbox)
+-- ════════════════════════════════════════════════════════════════════════
+
+INSERT INTO events (id, user_id, event_type, properties, created_at) VALUES
+  (1,  101, 'page_view', '{"page":"/dashboard"}',          '2024-03-01 08:01:00'),
+  (2,  102, 'page_view', '{"page":"/pricing"}',            '2024-03-01 08:05:00'),
+  (3,  101, 'click',     '{"element":"upgrade-btn"}',      '2024-03-01 08:07:00'),
+  (4,  103, 'signup',    '{"plan":"free"}',                '2024-03-01 09:00:00'),
+  (5,  104, 'page_view', '{"page":"/dashboard"}',          '2024-03-01 09:15:00'),
+  (6,  101, 'purchase',  '{"product_id":1,"cents":2900}',  '2024-03-01 09:20:00'),
+  (7,  105, 'page_view', '{"page":"/features"}',           '2024-03-02 10:00:00'),
+  (8,  102, 'click',     '{"element":"demo-btn"}',         '2024-03-02 10:30:00'),
+  (9,  103, 'page_view', '{"page":"/dashboard"}',          '2024-03-02 11:00:00'),
+  (10, 106, 'signup',    '{"plan":"pro"}',                 '2024-03-02 11:30:00'),
+  (11, 104, 'purchase',  '{"product_id":2,"cents":9900}',  '2024-03-03 08:00:00'),
+  (12, 107, 'page_view', '{"page":"/dashboard"}',          '2024-03-03 09:00:00'),
+  (13, 101, 'page_view', '{"page":"/reports"}',            '2024-03-15 14:00:00'),
+  (14, 108, 'click',     '{"element":"export-btn"}',       '2024-03-15 14:05:00'),
+  (15, 102, 'purchase',  '{"product_id":3,"cents":1500}',  '2024-03-15 15:00:00'),
+  (16, 109, 'signup',    '{"plan":"enterprise"}',          '2024-03-16 09:00:00'),
+  (17, 110, 'page_view', '{"page":"/dashboard"}',          '2024-03-16 10:00:00'),
+  (18, 103, 'click',     '{"element":"invite-btn"}',       '2024-03-16 10:30:00'),
+  (19, 101, 'page_view', '{"page":"/settings"}',           '2024-04-01 08:00:00'),
+  (20, 104, 'click',     '{"element":"upgrade-btn"}',      '2024-04-01 08:10:00'),
+  (21, 106, 'purchase',  '{"product_id":1,"cents":2900}',  '2024-04-01 09:00:00'),
+  (22, 107, 'page_view', '{"page":"/dashboard"}',          '2024-04-02 10:00:00'),
+  (23, 105, 'signup',    '{"plan":"pro"}',                 '2024-04-02 11:00:00'),
+  (24, 110, 'purchase',  '{"product_id":4,"cents":4900}',  '2024-04-02 12:00:00');
+
+-- ════════════════════════════════════════════════════════════════════════
+-- THE SLOW QUERY  (single-month aggregation — target < 4s after partitioning)
+-- ════════════════════════════════════════════════════════════════════════
 SELECT
   event_type,
-  COUNT(*)                                    AS event_count,
-  COUNT(DISTINCT user_id)                     AS unique_users,
-  DATE_TRUNC('day', created_at)               AS day
+  COUNT(*)               AS event_count,
+  COUNT(DISTINCT user_id) AS unique_users,
+  DATE(created_at)       AS day
 FROM events
 WHERE created_at >= '2024-03-01'
   AND created_at <  '2024-04-01'
 GROUP BY event_type, day
-ORDER BY day, event_count DESC;
-
--- ─── Table stats ──────────────────────────────────────────────────────────
--- Total rows:        ~500 000 000
--- Uncompressed size: ~180 GB
--- Date range:        2022-01-01 → present`
+ORDER BY day, event_count DESC;`
     },
 
     {
@@ -5242,64 +5270,129 @@ ACCEPTANCE CRITERIA
         correctness: "View correctly aggregates data; CONCURRENTLY works; pg_cron configured; < 50ms.",
         aiUsage: "Uses AI to write the pg_cron schedule and verify the view query plan."
       },
-      starterSchema: `-- ─── Database Schema ──────────────────────────────────────────────────────
--- This is the existing schema your solution must work with.
--- The dashboard query joining these 4 tables currently takes 12 seconds.
+      starterSchema: `-- ════════════════════════════════════════════════════════════════════════
+-- SCHEMA  (PostgreSQL — production table definitions)
+-- ════════════════════════════════════════════════════════════════════════
 
 CREATE TABLE users (
-  id          BIGSERIAL PRIMARY KEY,
+  id          BIGSERIAL   PRIMARY KEY,
   email       TEXT        NOT NULL UNIQUE,
-  plan        TEXT        NOT NULL DEFAULT 'free',  -- 'free' | 'pro' | 'enterprise'
+  plan        TEXT        NOT NULL DEFAULT 'free',   -- 'free' | 'pro' | 'enterprise'
   country     TEXT,
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE TABLE products (
-  id          BIGSERIAL PRIMARY KEY,
+  id          BIGSERIAL   PRIMARY KEY,
   name        TEXT        NOT NULL,
   category    TEXT        NOT NULL,
   price_cents INT         NOT NULL
 );
 
 CREATE TABLE orders (
-  id          BIGSERIAL PRIMARY KEY,
+  id          BIGSERIAL   PRIMARY KEY,
   user_id     BIGINT      NOT NULL REFERENCES users(id),
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
   status      TEXT        NOT NULL DEFAULT 'pending'  -- 'pending' | 'paid' | 'refunded'
 );
 
 CREATE TABLE order_items (
-  id          BIGSERIAL PRIMARY KEY,
+  id          BIGSERIAL   PRIMARY KEY,
   order_id    BIGINT      NOT NULL REFERENCES orders(id),
   product_id  BIGINT      NOT NULL REFERENCES products(id),
   quantity    INT         NOT NULL DEFAULT 1,
-  unit_price  INT         NOT NULL  -- price at time of purchase (cents)
+  unit_price  INT         NOT NULL                    -- price at time of purchase (cents)
 );
 
--- ─── The slow query (runs on every page load — takes ~12s) ────────────────
--- Your task: wrap this in a MATERIALIZED VIEW named analytics_summary
--- and set up CONCURRENTLY refresh via pg_cron every 5 minutes.
+-- Production table sizes:
+--   users: ~2 000 000 rows  |  products: ~50 000 rows
+--   orders: ~40 000 000 rows  |  order_items: ~100 000 000 rows
 
+-- ════════════════════════════════════════════════════════════════════════
+-- SAMPLE DATA  (20 rows each — loaded into the in-browser sandbox)
+-- Run any SELECT below to explore the data before writing your solution.
+-- ════════════════════════════════════════════════════════════════════════
+
+INSERT INTO users (id, email, plan, country, created_at) VALUES
+  (1,  'alice@example.com',   'pro',        'US', '2024-01-10 09:00:00'),
+  (2,  'bob@example.com',     'free',       'GB', '2024-01-15 10:30:00'),
+  (3,  'carol@example.com',   'enterprise', 'DE', '2024-02-01 08:00:00'),
+  (4,  'david@example.com',   'pro',        'FR', '2024-02-14 14:00:00'),
+  (5,  'eve@example.com',     'free',       'US', '2024-02-20 11:00:00'),
+  (6,  'frank@example.com',   'enterprise', 'JP', '2024-03-01 09:00:00'),
+  (7,  'grace@example.com',   'pro',        'CA', '2024-03-05 16:00:00'),
+  (8,  'henry@example.com',   'free',       'AU', '2024-03-10 07:00:00'),
+  (9,  'irene@example.com',   'pro',        'US', '2024-03-15 12:00:00'),
+  (10, 'jack@example.com',    'enterprise', 'IN', '2024-03-20 08:30:00');
+
+INSERT INTO products (id, name, category, price_cents) VALUES
+  (1,  'Pro Plan Monthly',      'subscription', 2900),
+  (2,  'Enterprise Plan Monthly','subscription',9900),
+  (3,  'Analytics Add-on',      'addon',        1500),
+  (4,  'Extra Seats (5-pack)',   'addon',        4900),
+  (5,  'Data Export API',       'addon',        2000),
+  (6,  'Priority Support',      'support',      4900),
+  (7,  'Onboarding Session',    'service',     19900),
+  (8,  'Custom Integration',    'service',     49900),
+  (9,  'Storage Upgrade 100GB', 'addon',         990),
+  (10, 'White-label License',   'license',    99900);
+
+INSERT INTO orders (id, user_id, created_at, status) VALUES
+  (1,  1, '2024-03-01 10:00:00', 'paid'),
+  (2,  2, '2024-03-02 11:00:00', 'paid'),
+  (3,  3, '2024-03-03 09:30:00', 'paid'),
+  (4,  4, '2024-03-05 14:00:00', 'paid'),
+  (5,  5, '2024-03-06 16:00:00', 'pending'),
+  (6,  6, '2024-03-08 08:00:00', 'paid'),
+  (7,  7, '2024-03-10 12:00:00', 'paid'),
+  (8,  8, '2024-03-12 07:30:00', 'refunded'),
+  (9,  9, '2024-03-14 10:00:00', 'paid'),
+  (10, 10,'2024-03-15 09:00:00', 'paid'),
+  (11, 1, '2024-03-18 11:00:00', 'paid'),
+  (12, 3, '2024-03-20 14:00:00', 'paid'),
+  (13, 6, '2024-03-22 08:00:00', 'paid'),
+  (14, 9, '2024-03-25 10:30:00', 'paid'),
+  (15, 2, '2024-04-01 09:00:00', 'paid');
+
+INSERT INTO order_items (id, order_id, product_id, quantity, unit_price) VALUES
+  (1,  1,  1, 1, 2900),
+  (2,  1,  3, 1, 1500),
+  (3,  2,  1, 1, 2900),
+  (4,  3,  2, 1, 9900),
+  (5,  3,  4, 2, 4900),
+  (6,  4,  1, 1, 2900),
+  (7,  4,  5, 1, 2000),
+  (8,  5,  1, 1, 2900),
+  (9,  6,  2, 1, 9900),
+  (10, 6,  6, 1, 4900),
+  (11, 6,  7, 1,19900),
+  (12, 7,  1, 1, 2900),
+  (13, 7,  9, 3,  990),
+  (14, 8,  3, 1, 1500),
+  (15, 9,  1, 1, 2900),
+  (16, 9,  3, 1, 1500),
+  (17, 10, 2, 1, 9900),
+  (18, 10,10, 1,99900),
+  (19, 11, 1, 1, 2900),
+  (20, 12, 2, 1, 9900);
+
+-- ════════════════════════════════════════════════════════════════════════
+-- THE SLOW QUERY  (wrap this in a MATERIALIZED VIEW named analytics_summary)
+-- ════════════════════════════════════════════════════════════════════════
 SELECT
   p.category,
   u.plan,
   u.country,
-  COUNT(DISTINCT o.id)              AS order_count,
-  SUM(oi.quantity * oi.unit_price)  AS revenue_cents,
-  AVG(oi.unit_price)                AS avg_item_price
+  COUNT(DISTINCT o.id)             AS order_count,
+  SUM(oi.quantity * oi.unit_price) AS revenue_cents,
+  AVG(oi.unit_price)               AS avg_item_price
 FROM orders o
-JOIN users       u  ON u.id  = o.user_id
+JOIN users       u  ON u.id = o.user_id
 JOIN order_items oi ON oi.order_id = o.id
-JOIN products    p  ON p.id  = oi.product_id
+JOIN products    p  ON p.id = oi.product_id
 WHERE o.status = 'paid'
-  AND o.created_at >= now() - INTERVAL '90 days'
-GROUP BY p.category, u.plan, u.country;
-
--- ─── Sample data sizes ────────────────────────────────────────────────────
--- users:        ~2 000 000 rows
--- products:     ~50 000 rows
--- orders:       ~40 000 000 rows
--- order_items:  ~100 000 000 rows`
+GROUP BY p.category, u.plan, u.country
+ORDER BY revenue_cents DESC;`
     },
 
     {
