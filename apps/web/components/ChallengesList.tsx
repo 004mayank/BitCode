@@ -20,23 +20,24 @@ const DIFF_LABEL: Record<number, { label: string; color: string }> = {
   5: { label: "Expert", color: "purple" },
 };
 
-const TAG_ICONS: Record<string, string> = {
-  ai: "🤖",
-  rag: "📚",
-  agents: "🤝",
-  security: "🔒",
-  backend: "⚙️",
-  frontend: "🖥",
-  debugging: "🐛",
-  performance: "⚡",
-  database: "🗄",
-  devops: "🚀",
-  evaluation: "📊",
-  testing: "✅",
+// Display labels for tags (proper capitalisation, no emojis)
+const TAG_LABELS: Record<string, string> = {
+  ai:          "AI",
+  rag:         "RAG",
+  agents:      "Agents",
+  security:    "Security",
+  backend:     "Backend",
+  frontend:    "Frontend",
+  debugging:   "Debugging",
+  performance: "Performance",
+  database:    "Database",
+  devops:      "DevOps",
+  evaluation:  "Evaluation",
+  testing:     "Testing",
 };
 
-function tagIcon(t: string) {
-  return TAG_ICONS[t] ?? null;
+function tagLabel(t: string) {
+  return TAG_LABELS[t] ?? (t.charAt(0).toUpperCase() + t.slice(1));
 }
 
 function DiffBadge({ d }: { d: number }) {
@@ -92,8 +93,7 @@ export function ChallengesList() {
             className={`btn sm ${filter === f ? "" : "secondary"}`}
             onClick={() => setFilter(f)}
           >
-            {f !== "All" && tagIcon(f) ? `${tagIcon(f)} ` : ""}
-            {f === "All" ? "All" : f}
+            {f === "All" ? "All" : tagLabel(f)}
           </button>
         ))}
       </div>
@@ -116,7 +116,7 @@ export function ChallengesList() {
               <div style={{ color: "var(--text-2)", fontSize: 13, lineHeight: 1.6, flex: 1 }}>{c.description}</div>
               <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginTop: 4 }}>
                 {c.tags.slice(0, 5).map((t) => (
-                  <span key={t} className="tag">{tagIcon(t) ? `${tagIcon(t)} ` : ""}{t}</span>
+                  <span key={t} className="tag">{tagLabel(t)}</span>
                 ))}
               </div>
               <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 2 }}>
