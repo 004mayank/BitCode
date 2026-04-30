@@ -1,4 +1,3 @@
-import { BrainAnimation } from "../../components/BrainAnimation";
 import { BitCodeNavLogo } from "../../components/BitCodeLogo";
 import { auth, signIn } from "../../auth";
 import Link from "next/link";
@@ -156,84 +155,76 @@ export default async function HomePage() {
         <div style={{ position: "absolute", bottom: "5%", right: "-5%", width: 500, height: 500, borderRadius: "50%", background: "radial-gradient(circle, rgba(139,92,246,0.07) 0%, transparent 70%)", pointerEvents: "none" }} />
         <div style={{ position: "absolute", top: "30%", right: "20%", width: 400, height: 400, borderRadius: "50%", background: "radial-gradient(circle, rgba(0,220,180,0.06) 0%, transparent 70%)", pointerEvents: "none" }} />
 
-        <div style={{ padding: "80px 6vw", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24, alignItems: "center", width: "100%" }}>
+        <div style={{ padding: "80px 6vw", display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", width: "100%" }}>
 
-          {/* Left: copy */}
-          <div>
-            {/* Headline */}
-            <h1 style={{
-              fontSize: "clamp(40px, 5.5vw, 72px)", fontWeight: 900, lineHeight: 1.05,
-              letterSpacing: "-0.03em", margin: "0 0 16px",
-              background: "linear-gradient(135deg, #ffffff 0%, rgba(255,255,255,0.75) 100%)",
-              WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
-              backgroundClip: "text",
-            }}>
-              The development<br />cycle is changing.
-            </h1>
+          {/* Headline */}
+          <h1 style={{
+            fontSize: "clamp(44px, 6vw, 80px)", fontWeight: 900, lineHeight: 1.05,
+            letterSpacing: "-0.03em", margin: "0 0 20px", maxWidth: 800,
+            background: "linear-gradient(135deg, #ffffff 0%, rgba(255,255,255,0.75) 100%)",
+            WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
+            backgroundClip: "text",
+          }}>
+            The development<br />cycle is changing.
+          </h1>
 
-            {/* Sub-headline */}
-            <p style={{
-              fontSize: "clamp(16px, 2vw, 22px)", fontWeight: 400, lineHeight: 1.5,
-              color: "rgba(255,255,255,0.55)", margin: "0 0 12px",
-            }}>
-              So are the tools.
-            </p>
+          {/* Sub-headline */}
+          <p style={{
+            fontSize: "clamp(18px, 2vw, 24px)", fontWeight: 400, lineHeight: 1.5,
+            color: "rgba(255,255,255,0.55)", margin: "0 0 14px",
+          }}>
+            So are the tools.
+          </p>
 
-            {/* Body */}
-            <p style={{
-              fontSize: 16, lineHeight: 1.75, color: "rgba(255,255,255,0.45)",
-              maxWidth: 480, margin: "0 0 40px",
-            }}>
-              BitCode integrates the latest AI coding technology and evaluates developers on{" "}
-              <em style={{ color: "rgba(255,255,255,0.7)", fontStyle: "normal", fontWeight: 600 }}>how they think,</em>
-              {" "} not just what they ship. Solve real engineering problems, log your AI workflow, get an explainable skill score.
-            </p>
+          {/* Body */}
+          <p style={{
+            fontSize: 16, lineHeight: 1.75, color: "rgba(255,255,255,0.45)",
+            maxWidth: 560, margin: "0 0 44px",
+          }}>
+            BitCode integrates the latest AI coding technology and evaluates developers on{" "}
+            <em style={{ color: "rgba(255,255,255,0.7)", fontStyle: "normal", fontWeight: 600 }}>how they think,</em>
+            {" "}not just what they ship. Solve real engineering problems, log your AI workflow, get an explainable skill score.
+          </p>
 
-            {/* CTAs */}
-            <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 56 }}>
-              {isLoggedIn ? (
-                <Link href="/dashboard" style={{
-                  display: "inline-flex", alignItems: "center", gap: 8,
-                  background: "#3b82f6", color: "#fff", padding: "14px 28px",
-                  borderRadius: 10, fontSize: 15, fontWeight: 700, textDecoration: "none",
-                  boxShadow: "0 0 32px rgba(59,130,246,0.5), 0 4px 16px rgba(59,130,246,0.3)",
-                }}>
-                  Go to Dashboard →
-                </Link>
-              ) : (
-                <Link href="/auth" style={{
-                  display: "inline-flex", alignItems: "center", gap: 8,
-                  background: "#3b82f6", color: "#fff", padding: "14px 28px",
-                  borderRadius: 10, fontSize: 15, fontWeight: 700, textDecoration: "none",
-                  boxShadow: "0 0 32px rgba(59,130,246,0.5), 0 4px 16px rgba(59,130,246,0.3)",
-                }}>
-                  Start building →
-                </Link>
-              )}
-              <Link href="/challenges" style={{
+          {/* CTAs */}
+          <div style={{ display: "flex", gap: 14, flexWrap: "wrap", justifyContent: "center", marginBottom: 64 }}>
+            {isLoggedIn ? (
+              <Link href="/dashboard" style={{
                 display: "inline-flex", alignItems: "center", gap: 8,
-                background: "rgba(255,255,255,0.05)", color: "rgba(255,255,255,0.8)",
-                padding: "14px 28px", borderRadius: 10, fontSize: 15, fontWeight: 600,
-                textDecoration: "none", border: "1px solid rgba(255,255,255,0.1)",
+                background: "#3b82f6", color: "#fff", padding: "14px 28px",
+                borderRadius: 10, fontSize: 15, fontWeight: 700, textDecoration: "none",
+                boxShadow: "0 0 32px rgba(59,130,246,0.5), 0 4px 16px rgba(59,130,246,0.3)",
               }}>
-                Browse Challenges
+                Go to Dashboard →
               </Link>
-            </div>
-
-            {/* Stats */}
-            <div style={{ display: "flex", gap: 32, flexWrap: "wrap" }}>
-              {STATS.map((s) => (
-                <div key={s.label}>
-                  <div style={{ fontSize: 28, fontWeight: 900, color: "#fff", lineHeight: 1 }}>{s.value}</div>
-                  <div style={{ fontSize: 12, color: "rgba(255,255,255,0.35)", marginTop: 4, textTransform: "uppercase", letterSpacing: "0.06em" }}>{s.label}</div>
-                </div>
-              ))}
-            </div>
+            ) : (
+              <Link href="/auth" style={{
+                display: "inline-flex", alignItems: "center", gap: 8,
+                background: "#3b82f6", color: "#fff", padding: "14px 28px",
+                borderRadius: 10, fontSize: 15, fontWeight: 700, textDecoration: "none",
+                boxShadow: "0 0 32px rgba(59,130,246,0.5), 0 4px 16px rgba(59,130,246,0.3)",
+              }}>
+                Start building →
+              </Link>
+            )}
+            <Link href="/challenges" style={{
+              display: "inline-flex", alignItems: "center", gap: 8,
+              background: "rgba(255,255,255,0.05)", color: "rgba(255,255,255,0.8)",
+              padding: "14px 28px", borderRadius: 10, fontSize: 15, fontWeight: 600,
+              textDecoration: "none", border: "1px solid rgba(255,255,255,0.1)",
+            }}>
+              Browse Challenges
+            </Link>
           </div>
 
-          {/* Right: brain animation */}
-          <div style={{ display: "flex", justifyContent: "center", alignItems: "center" }}>
-            <BrainAnimation size={560} />
+          {/* Stats */}
+          <div style={{ display: "flex", gap: 48, flexWrap: "wrap", justifyContent: "center" }}>
+            {STATS.map((s) => (
+              <div key={s.label} style={{ textAlign: "center" }}>
+                <div style={{ fontSize: 32, fontWeight: 900, color: "#fff", lineHeight: 1 }}>{s.value}</div>
+                <div style={{ fontSize: 12, color: "rgba(255,255,255,0.35)", marginTop: 6, textTransform: "uppercase", letterSpacing: "0.06em" }}>{s.label}</div>
+              </div>
+            ))}
           </div>
         </div>
       </section>
