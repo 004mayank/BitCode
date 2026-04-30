@@ -1,4 +1,5 @@
 import { BrainAnimation } from "../../components/BrainAnimation";
+import { BitCodeNavLogo } from "../../components/BitCodeLogo";
 import { auth, signIn } from "../../auth";
 import Link from "next/link";
 
@@ -99,19 +100,8 @@ export default async function HomePage() {
       }}>
         <div style={{ padding: "0 6vw", height: 60, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           {/* Logo — extreme left */}
-          <Link href="/" style={{ textDecoration: "none", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
-            {/* Terminal icon */}
-            <div style={{
-              width: 34, height: 34, borderRadius: 7,
-              background: "#0d0d20", border: "1px solid rgba(139,92,246,0.5)",
-              display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
-            }}>
-              <span style={{ fontFamily: "monospace", fontSize: 11, fontWeight: 900, color: "#00dc9b", letterSpacing: "-1px" }}>{"{/}"}</span>
-            </div>
-            <span style={{ fontSize: 20, fontWeight: 900, letterSpacing: "-0.03em" }}>
-              <span style={{ color: "#fff" }}>Bit</span>
-              <span style={{ color: "#8b5cf6" }}>Code</span>
-            </span>
+          <Link href="/" style={{ textDecoration: "none", flexShrink: 0 }}>
+            <BitCodeNavLogo cellSize={2} textSize={20} gap={12} />
           </Link>
 
           {/* Nav links — center */}
@@ -389,10 +379,7 @@ export default async function HomePage() {
       <footer style={{ borderTop: "1px solid rgba(255,255,255,0.06)", padding: "40px 28px" }}>
         <div style={{ maxWidth: 1180, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 20 }}>
           <div>
-            <span style={{ fontSize: 18, fontWeight: 900, letterSpacing: "-0.03em" }}>
-              <span style={{ color: "#fff" }}>Bit</span>
-              <span style={{ color: "#8b5cf6" }}>Code</span>
-            </span>
+            <BitCodeNavLogo cellSize={2} textSize={18} gap={10} />
             <div style={{ fontSize: 12, color: "rgba(255,255,255,0.25)", marginTop: 6 }}>
               The AI-native developer platform. &copy; {new Date().getFullYear()}
             </div>
