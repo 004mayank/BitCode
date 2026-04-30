@@ -569,11 +569,18 @@ export function ChallengeAttempt({ challengeId }: { challengeId: string }) {
     });
   }, [challengeId]);
 
-  // Load challenge
+  // Load challenge — auto-select SQL for database challenges
   useEffect(() => {
     apiGet<{ ok: true; challenges: Challenge[] }>("/api/challenges")
       .then((j) => j.challenges.find((c) => c.id === challengeId) ?? null)
-      .then(setChallenge)
+      .then((c) => {
+        setChallenge(c);
+        // Auto-switch to SQL language when the challenge ships a starter schema
+        if (c?.starterSchema) {
+          const sqlLang = LANGUAGES.find((l) => l.id === "sql");
+          if (sqlLang) setLang(sqlLang);
+        }
+      })
       .catch((e) => setErr(String(e?.message || e)));
   }, [challengeId]);
 
@@ -879,7 +886,11 @@ export function ChallengeAttempt({ challengeId }: { challengeId: string }) {
                   {lang.id === "sql" ? "Query Results" : "Console"}
                   {running && <span style={{ color: "var(--blue)", marginLeft: 6 }}>· running…</span>}
                   {runResult && <span style={{ color: runResult.status === "done" ? "var(--green)" : "var(--red)", marginLeft: 6 }}>
-                    {runResult.status === "done" ? `· ${sqlResults.reduce((n, r) => n + r.rows.length, 0)} row(s)` : "· error"}
+                    {runResult.status === "done"
+                      ? lang.id === "sql"
+                        ? `· ${sqlResults.reduce((n, r) => n + r.rows.length, 0)} row(s)`
+                        : "· done"
+                      : "· error"}
                   </span>}
                 </div>
                 <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
