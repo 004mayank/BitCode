@@ -4840,7 +4840,44 @@ ACCEPTANCE CRITERIA
       rubric: {
         correctness: "pgvector schema correct; index created; upsert idempotent; query < 50ms.",
         aiUsage: "Uses AI to generate embeddings and write the IVFFlat index configuration."
-      }
+      },
+      starterSchema: `-- ─── Database Schema ──────────────────────────────────────────────────────
+-- Extensions and tables your solution must create / extend.
+
+-- Step 1: enable pgvector
+CREATE EXTENSION IF NOT EXISTS vector;
+
+-- ─── Target table you need to create ─────────────────────────────────────
+-- (shown here as reference — your task is to implement this correctly)
+CREATE TABLE embeddings (
+  id            BIGSERIAL    PRIMARY KEY,
+  content_hash  TEXT         NOT NULL UNIQUE,  -- SHA-256 of the text, for dedup
+  text          TEXT         NOT NULL,
+  embedding     VECTOR(1536) NOT NULL,          -- OpenAI ada-002 / text-embedding-3-small
+  metadata      JSONB,
+  created_at    TIMESTAMPTZ  NOT NULL DEFAULT now()
+);
+
+-- ─── Index to create (IVFFlat for approximate nearest-neighbour) ──────────
+-- lists = 100 is a good starting point for ~100k rows.
+-- Rebuild with lists = sqrt(row_count) as the dataset grows.
+CREATE INDEX ON embeddings
+  USING ivfflat (embedding vector_cosine_ops)
+  WITH (lists = 100);
+
+-- ─── Similarity query pattern ─────────────────────────────────────────────
+-- Replace $1 with a VECTOR(1536) query embedding.
+-- Returns the 5 most similar documents by cosine distance.
+SELECT id, text, metadata,
+       1 - (embedding <=> $1::vector) AS similarity
+FROM embeddings
+ORDER BY embedding <=> $1::vector
+LIMIT 5;
+
+-- ─── Current in-memory structure (what you are replacing) ─────────────────
+-- The app currently stores embeddings in a JS Map:
+--   Map<contentHash: string, { text: string, embedding: number[] }>
+-- ~10k documents fit in RAM; anything beyond causes OOM crashes.`
     },
 
     {
@@ -5141,7 +5178,40 @@ ACCEPTANCE CRITERIA
       rubric: {
         correctness: "Partitioning correct; pg_partman configured; pruning verified; 10x speedup achieved.",
         aiUsage: "Uses AI to write the pg_partman configuration and data migration batching script."
-      }
+      },
+      starterSchema: `-- ─── Database Schema ──────────────────────────────────────────────────────
+-- The events table (500M rows) you need to partition by month.
+
+CREATE TABLE events (
+  id          BIGSERIAL    PRIMARY KEY,
+  user_id     BIGINT       NOT NULL,
+  event_type  TEXT         NOT NULL,   -- e.g. 'page_view', 'click', 'purchase'
+  properties  JSONB,
+  created_at  TIMESTAMPTZ  NOT NULL DEFAULT now()
+);
+
+-- Existing indexes (must be recreated on each partition after migration)
+CREATE INDEX idx_events_user_id   ON events (user_id);
+CREATE INDEX idx_events_type      ON events (event_type, created_at DESC);
+CREATE INDEX idx_events_created   ON events (created_at DESC);
+
+-- ─── Slow query to benchmark against (single-month aggregation) ───────────
+-- Currently takes ~45 seconds; target is < 4 seconds after partitioning.
+SELECT
+  event_type,
+  COUNT(*)                                    AS event_count,
+  COUNT(DISTINCT user_id)                     AS unique_users,
+  DATE_TRUNC('day', created_at)               AS day
+FROM events
+WHERE created_at >= '2024-03-01'
+  AND created_at <  '2024-04-01'
+GROUP BY event_type, day
+ORDER BY day, event_count DESC;
+
+-- ─── Table stats ──────────────────────────────────────────────────────────
+-- Total rows:        ~500 000 000
+-- Uncompressed size: ~180 GB
+-- Date range:        2022-01-01 → present`
     },
 
     {
@@ -5171,7 +5241,65 @@ ACCEPTANCE CRITERIA
       rubric: {
         correctness: "View correctly aggregates data; CONCURRENTLY works; pg_cron configured; < 50ms.",
         aiUsage: "Uses AI to write the pg_cron schedule and verify the view query plan."
-      }
+      },
+      starterSchema: `-- ─── Database Schema ──────────────────────────────────────────────────────
+-- This is the existing schema your solution must work with.
+-- The dashboard query joining these 4 tables currently takes 12 seconds.
+
+CREATE TABLE users (
+  id          BIGSERIAL PRIMARY KEY,
+  email       TEXT        NOT NULL UNIQUE,
+  plan        TEXT        NOT NULL DEFAULT 'free',  -- 'free' | 'pro' | 'enterprise'
+  country     TEXT,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE products (
+  id          BIGSERIAL PRIMARY KEY,
+  name        TEXT        NOT NULL,
+  category    TEXT        NOT NULL,
+  price_cents INT         NOT NULL
+);
+
+CREATE TABLE orders (
+  id          BIGSERIAL PRIMARY KEY,
+  user_id     BIGINT      NOT NULL REFERENCES users(id),
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  status      TEXT        NOT NULL DEFAULT 'pending'  -- 'pending' | 'paid' | 'refunded'
+);
+
+CREATE TABLE order_items (
+  id          BIGSERIAL PRIMARY KEY,
+  order_id    BIGINT      NOT NULL REFERENCES orders(id),
+  product_id  BIGINT      NOT NULL REFERENCES products(id),
+  quantity    INT         NOT NULL DEFAULT 1,
+  unit_price  INT         NOT NULL  -- price at time of purchase (cents)
+);
+
+-- ─── The slow query (runs on every page load — takes ~12s) ────────────────
+-- Your task: wrap this in a MATERIALIZED VIEW named analytics_summary
+-- and set up CONCURRENTLY refresh via pg_cron every 5 minutes.
+
+SELECT
+  p.category,
+  u.plan,
+  u.country,
+  COUNT(DISTINCT o.id)              AS order_count,
+  SUM(oi.quantity * oi.unit_price)  AS revenue_cents,
+  AVG(oi.unit_price)                AS avg_item_price
+FROM orders o
+JOIN users       u  ON u.id  = o.user_id
+JOIN order_items oi ON oi.order_id = o.id
+JOIN products    p  ON p.id  = oi.product_id
+WHERE o.status = 'paid'
+  AND o.created_at >= now() - INTERVAL '90 days'
+GROUP BY p.category, u.plan, u.country;
+
+-- ─── Sample data sizes ────────────────────────────────────────────────────
+-- users:        ~2 000 000 rows
+-- products:     ~50 000 rows
+-- orders:       ~40 000 000 rows
+-- order_items:  ~100 000 000 rows`
     },
 
     {

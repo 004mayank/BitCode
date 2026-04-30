@@ -29,7 +29,7 @@ const DEFAULT_LANG = LANGUAGES[0];
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-type Challenge      = { id: string; title: string; description: string; prompt: string; tags: string[]; difficulty: number; rubric?: any };
+type Challenge      = { id: string; title: string; description: string; prompt: string; tags: string[]; difficulty: number; rubric?: any; starterSchema?: string | null };
 type Attempt        = { id: string; challengeId: string; status: string; submissionUrl?: string | null };
 type ScoreBreakdown = { promptQuality: number; iterationIntelligence: number; efficiency: number; correctnessProxy: number; total: number; notes: string[] };
 type ChatMessage    = { role: "user" | "assistant"; content: string; ts: number };
@@ -662,6 +662,51 @@ export function ChallengeAttempt({ challengeId }: { challengeId: string }) {
                   <span style={{ color: "var(--text-2)" }}>{v}</span>
                 </div>
               ))}
+            </div>
+          )}
+
+          {/* Schema — shown for database/SQL challenges that have a starterSchema */}
+          {challenge?.starterSchema && (
+            <div style={{ marginTop: 12 }}>
+              <div style={{ fontWeight: 700, fontSize: 10, letterSpacing: "0.07em", textTransform: "uppercase", color: "var(--text-3)", marginBottom: 6, display: "flex", alignItems: "center", gap: 6 }}>
+                <span>🗄</span> Database Schema
+              </div>
+              <div style={{ borderRadius: 10, overflow: "hidden", border: "1px solid var(--border)" }}>
+                <div style={{
+                  padding: "5px 12px",
+                  background: "#1e1e2e",
+                  borderBottom: "1px solid rgba(255,255,255,0.07)",
+                  fontSize: 11, color: "#7c8db0", fontFamily: "monospace",
+                  display: "flex", alignItems: "center", justifyContent: "space-between",
+                }}>
+                  <span>sql — read-only reference</span>
+                  <button
+                    className="btn sm"
+                    style={{ fontSize: 10, padding: "1px 8px" }}
+                    onClick={() => {
+                      setCode(challenge.starterSchema!);
+                      const sqlLang = LANGUAGES.find((l) => l.id === "sql");
+                      if (sqlLang) setLang(sqlLang);
+                      setActiveTab("editor");
+                    }}
+                  >
+                    ↗ Load into editor
+                  </button>
+                </div>
+                <pre style={{
+                  margin: 0, padding: "12px 14px",
+                  background: "#0d0d14",
+                  color: "#cdd6f4",
+                  fontSize: 11.5, lineHeight: 1.65,
+                  overflowX: "auto",
+                  maxHeight: 320,
+                  overflowY: "auto",
+                  fontFamily: "ui-monospace, 'Cascadia Code', 'Fira Code', monospace",
+                  whiteSpace: "pre",
+                }}>
+                  {challenge.starterSchema}
+                </pre>
+              </div>
             </div>
           )}
         </div>
