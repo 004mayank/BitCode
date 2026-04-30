@@ -301,7 +301,7 @@ export default async function AboutPage() {
               </span>
             </h2>
             <p style={{ fontSize: 16, color: "rgba(255,255,255,0.4)", lineHeight: 1.7, maxWidth: 380, margin: "0 0 40px" }}>
-              The evaluation is built around your process — not just the final answer. Every prompt you write, every iteration you make, is part of your score.
+              The evaluation is built around your process, not just the final answer. Every prompt you write, every iteration you make, is part of your score.
             </p>
             <div style={{ fontFamily: "monospace", fontSize: 12, color: "rgba(0,220,155,0.6)", background: "rgba(0,220,155,0.05)", border: "1px solid rgba(0,220,155,0.15)", borderRadius: 10, padding: "16px 20px", lineHeight: 2 }}>
               <div style={{ color: "rgba(255,255,255,0.2)" }}>{`// core principle`}</div>
@@ -441,7 +441,7 @@ export default async function AboutPage() {
               </span>
             </h2>
             <p style={{ fontSize: 16, color: "rgba(255,255,255,0.4)", lineHeight: 1.7, maxWidth: 360 }}>
-              BitCode evaluates your workflow, not just your final answer. The goal is not to finish fast — it is to solve problems effectively using AI.
+              BitCode evaluates your workflow, not just your final answer. The goal is not to finish fast. The goal is to solve problems effectively using AI.
             </p>
           </div>
 
