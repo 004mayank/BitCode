@@ -1,17 +1,13 @@
 "use client";
 import { useEffect, useRef } from "react";
 
-const CHARS = "$$SBZhnjkwm01ABCDEFabcdef@#&*{}[]<>|+-$$";
+// Dense character set
+const CHARS = "$$@@%%##&&WWMMBBZZhhnjkwm01ABCDEFabcdef*{}[]<>|+-";
 
-// Display size is half the canvas pixel size (2× retina-style render)
+// 2× retina render — crisp at all resolutions
 const DISPLAY_SCALE = 0.5;
 
-// Number of visible ridges across the fingerprint
-const N_RINGS = 18;
-// Fraction of each ridge cycle that is "lit" (vs gap)
-const RIDGE_FRACTION = 0.52;
-
-export function BrainAnimation({ size = 580 }: { size?: number }) {
+export function BrainAnimation({ size = 540 }: { size?: number }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const mouseRef  = useRef<{ x: number; y: number } | null>(null);
 
@@ -21,90 +17,119 @@ export function BrainAnimation({ size = 580 }: { size?: number }) {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    const dispW = Math.round(size * 0.82);
-    const dispH = size;
-    const W = dispW / DISPLAY_SCALE;
-    const H = dispH / DISPLAY_SCALE;
+    // Square canvas buffer at 2× for retina sharpness
+    const W = size / DISPLAY_SCALE;
+    const H = size / DISPLAY_SCALE;
     canvas.width  = W;
     canvas.height = H;
 
-    const CW = 10;
-    const CH = 15;
+    const CW = 10;  // char cell width  (canvas px)
+    const CH = 14;  // char cell height (canvas px)
     const COLS = Math.floor(W / CW);
     const ROWS = Math.floor(H / CH);
 
+    // Brain geometry — centre, overall extents
     const cx = W / 2;
     const cy = H * 0.50;
-    // Semi-axes of the clipping ellipse
-    const MAX_RX = W * 0.455;
-    const MAX_RY = H * 0.468;
+
+    // Each hemisphere:
+    //   lobeRX × lobeRY ellipse, centres offset ±lobeShift from cx
+    // These values produce a brain where each lobe is taller than wide
+    // (matching a real top-view brain) while the combined shape is nearly
+    // square overall — matching the reference image.
+    const lobeRX    = W * 0.24;   // narrow (left-right) per lobe
+    const lobeRY    = H * 0.42;   // tall   (front-back) per lobe
+    const lobeShift = W * 0.21;   // separation of each lobe centre from cx
+
+    // Overall extents (for depth weighting / fissure)
+    const RX = lobeShift + lobeRX;  // ≈ W*0.45 total half-width
+    const RY = lobeRY;              // ≈ H*0.42 total half-height
 
     // ─────────────────────────────────────────────────────────────────────
-    // fingerprintRidge — uses the classic potential-flow "doublet" stream
-    // function to generate authentic fingerprint loop topology.
-    //
-    //   ψ(x, y) = ny * (1 + a / r²)
-    //
-    //   where  nx, ny  are ellipse-normalised coordinates
-    //          r²      = nx² + ny²
-    //          a       = doublet strength  (controls loop size)
-    //
-    // Level-set geometry:
-    //   |ψ| < 2√a  →  closed loops (fingerprint core / delta)
-    //   |ψ| ≥ 2√a  →  open arches (outer ridges flowing around the core)
-    //
-    // We map ψ → ring index in [0, N_RINGS] so that the ridge/gap
-    // pattern repeats smoothly across the whole fingerprint.
+    // lobeBoundary — organic radial modulation creating gyri / sulci.
+    // Returns a normalised factor ≈ 0.85–1.02.
+    // `side` (+1/-1) adds a small phase offset so lobes aren't mirror-perfect.
     // ─────────────────────────────────────────────────────────────────────
-    function fingerprintRing(px: number, py: number): number {
-      const dx = px - cx;
-      const dy = py - cy;
-
-      // Clip to ellipse
-      if ((dx / MAX_RX) ** 2 + (dy / MAX_RY) ** 2 > 1) return -1;
-
-      // Normalise so the doublet lives in a unit circle
-      const nx = dx / MAX_RX;
-      const ny = dy / MAX_RY;
-      const r2 = nx * nx + ny * ny;
-
-      // Doublet strength — tuned so the loop core spans ~25 % of radius
-      const a = 0.09;
-
-      // Stream function value
-      const psi = ny * (1.0 + a / Math.max(r2, 0.003));
-
-      // ψ ranges roughly from -(1 + a/~0) to +(1 + a/~0).
-      // We clamp to [-MAX_PSI, MAX_PSI] then map to [0, N_RINGS].
-      const MAX_PSI = 1.22;
-      const clamped = Math.max(-MAX_PSI, Math.min(MAX_PSI, psi));
-      // Map [-MAX_PSI, MAX_PSI] → [0, N_RINGS]
-      return ((clamped + MAX_PSI) / (2 * MAX_PSI)) * N_RINGS;
+    function lobeBoundary(th: number, side: number): number {
+      const p = side * 0.3;
+      return (
+        0.91
+        + 0.055 * Math.cos(th * 2 + p + 0.5)
+        + 0.045 * Math.cos(th * 3 - 0.5)
+        + 0.035 * Math.sin(th * 4 + 1.1)
+        + 0.025 * Math.cos(th * 5 - 0.9)
+        + 0.018 * Math.sin(th * 7 + 0.4)
+        + 0.012 * Math.cos(th * 9 + 2.3)
+        + 0.008 * Math.sin(th * 12 - 1.0)
+      );
     }
 
-    function isOnRidge(col: number, row: number): boolean {
-      const ring = fingerprintRing((col + 0.5) * CW, (row + 0.5) * CH);
-      if (ring < 0) return false;
-      // fractional part determines ridge vs gap
-      return (ring % 1) < RIDGE_FRACTION;
+    // ─────────────────────────────────────────────────────────────────────
+    // isInBrain — two hemisphere blobs with a tapering longitudinal fissure.
+    // ─────────────────────────────────────────────────────────────────────
+    function isInBrain(px: number, py: number): boolean {
+      // ── Longitudinal fissure ──────────────────────────────────────────
+      // Runs from the crown (normY=-1) and tapers to zero at normY=0.30.
+      const normY = (py - cy) / RY;
+      if (normY < 0.30) {
+        const taper = Math.min(1, Math.max(0, (0.30 - normY) / 1.30));
+        const halfGap = RX * 0.030 * taper;
+        if (Math.abs(px - cx) < halfGap) return false;
+      }
+
+      // ── Left hemisphere ───────────────────────────────────────────────
+      {
+        const dx = px - (cx - lobeShift);
+        const dy = py - cy;
+        const nx = dx / lobeRX;
+        const ny = dy / lobeRY;
+        const r  = Math.sqrt(nx * nx + ny * ny);
+        const th = Math.atan2(ny, nx);
+        if (r < lobeBoundary(th, -1)) return true;
+      }
+
+      // ── Right hemisphere ──────────────────────────────────────────────
+      {
+        const dx = px - (cx + lobeShift);
+        const dy = py - cy;
+        const nx = dx / lobeRX;
+        const ny = dy / lobeRY;
+        const r  = Math.sqrt(nx * nx + ny * ny);
+        const th = Math.atan2(ny, -nx);  // mirrored for symmetry
+        if (r < lobeBoundary(th, +1)) return true;
+      }
+
+      return false;
     }
 
-    /* ── Character grid ── */
+    // ─────────────────────────────────────────────────────────────────────
+    // Per-cell state
+    // ─────────────────────────────────────────────────────────────────────
     const grid = Array.from({ length: COLS * ROWS }, () => ({
       char:  CHARS[Math.floor(Math.random() * CHARS.length)],
-      alpha: 0.78 + Math.random() * 0.22,
-      rate:  0.004 + Math.random() * 0.022,
+      alpha: 0.55 + Math.random() * 0.45,
+      rate:  0.006 + Math.random() * 0.024,
       phase: Math.random() * Math.PI * 2,
     }));
 
+    const depthWeight = new Float32Array(COLS * ROWS);
+    for (let row = 0; row < ROWS; row++) {
+      for (let col = 0; col < COLS; col++) {
+        const dx = (col + 0.5) * CW - cx;
+        const dy = (row + 0.5) * CH - cy;
+        const d  = Math.sqrt((dx / RX) ** 2 + (dy / RY) ** 2);
+        depthWeight[row * COLS + col] = Math.max(0, 1 - d * 0.6);
+      }
+    }
+
     let t = 0, raf = 0;
-    const HOVER_R = 120;  // canvas pixels (= 60 display px)
+    const HOVER_R = 120;
 
     const onMove = (e: MouseEvent) => {
-      const r = canvas.getBoundingClientRect();
+      const rect = canvas.getBoundingClientRect();
       mouseRef.current = {
-        x: (e.clientX - r.left) * (W / r.width),
-        y: (e.clientY - r.top)  * (H / r.height),
+        x: (e.clientX - rect.left)  * (W / rect.width),
+        y: (e.clientY - rect.top)   * (H / rect.height),
       };
     };
     const onLeave = () => { mouseRef.current = null; };
@@ -113,27 +138,30 @@ export function BrainAnimation({ size = 580 }: { size?: number }) {
 
     function draw() {
       ctx!.clearRect(0, 0, W, H);
-      ctx!.font = `bold 14px "Courier New", Courier, monospace`;
-      t += 0.013;
+      ctx!.font = `bold 13px "Courier New", Courier, monospace`;
+      t += 0.011;
 
       const mouse = mouseRef.current;
 
       for (let row = 0; row < ROWS; row++) {
         for (let col = 0; col < COLS; col++) {
-          if (!isOnRidge(col, row)) continue;
+          const px = (col + 0.5) * CW;
+          const py = (row + 0.5) * CH;
 
-          const cell = grid[row * COLS + col];
+          if (!isInBrain(px, py)) continue;
+
+          const idx  = row * COLS + col;
+          const cell = grid[idx];
+
           if (Math.random() < cell.rate) {
             cell.char = CHARS[Math.floor(Math.random() * CHARS.length)];
-            if (Math.random() < 0.04) cell.alpha = 0.78 + Math.random() * 0.22;
           }
 
-          const pulse = 0.93 + 0.07 * Math.sin(t * 1.1 + cell.phase);
-          let a = Math.min(1, cell.alpha * pulse);
+          const pulse = 0.90 + 0.10 * Math.sin(t * 1.2 + cell.phase);
+          const depth = 0.70 + 0.30 * depthWeight[idx];
+          let a = Math.min(1, cell.alpha * pulse * depth);
 
           if (mouse) {
-            const px = (col + 0.5) * CW;
-            const py = (row + 0.5) * CH;
             const dist = Math.sqrt((px - mouse.x) ** 2 + (py - mouse.y) ** 2);
             if (dist < HOVER_R) {
               const norm = dist / HOVER_R;
@@ -142,7 +170,7 @@ export function BrainAnimation({ size = 580 }: { size?: number }) {
           }
 
           if (a < 0.02) continue;
-          ctx!.fillStyle = `rgba(0,210,175,${a})`;
+          ctx!.fillStyle = `rgba(0,210,175,${a.toFixed(3)})`;
           ctx!.fillText(cell.char, col * CW, (row + 1) * CH - 2);
         }
       }
@@ -161,15 +189,15 @@ export function BrainAnimation({ size = 580 }: { size?: number }) {
   return (
     <canvas
       ref={canvasRef}
-      width={Math.round(size * 0.82) / DISPLAY_SCALE}
+      width={size / DISPLAY_SCALE}
       height={size / DISPLAY_SCALE}
       style={{
         display: "block",
         cursor: "crosshair",
-        width:  Math.round(size * 0.82),
+        width:  size,
         height: size,
         filter:
-          "drop-shadow(0 0 32px rgba(0,210,175,0.60)) drop-shadow(0 0 80px rgba(0,210,175,0.22))",
+          "drop-shadow(0 0 40px rgba(0,210,175,0.55)) drop-shadow(0 0 90px rgba(0,210,175,0.18))",
       }}
     />
   );

@@ -56,7 +56,7 @@ export function SidebarNav() {
         </span>
         {/* Full logo — icon + "BitCode" wordmark (fades in when expanded) */}
         <span className="sidebar-wordmark">
-          <BitCodeNavLogo cellSize={2} textSize={18} gap={10} />
+          <BitCodeNavLogo cellSize={2} textSize={18} gap={10} bitColor={isDark ? "#fff" : "#111"} />
         </span>
       </Link>
 

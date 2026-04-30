@@ -144,16 +144,19 @@ export function BitCodeNavLogo({
   cellSize = 2,
   textSize = 20,
   gap = 12,
+  bitColor = "#fff",
 }: {
   cellSize?: number;
   textSize?: number;
   gap?: number;
+  /** Color for "Bit" — pass a dark color in light-mode contexts */
+  bitColor?: string;
 }) {
   return (
     <span style={{ display: "flex", alignItems: "center", gap }}>
       <PixelLaptopIcon cellSize={cellSize} />
       <span style={{ fontSize: textSize, fontWeight: 900, letterSpacing: "-0.03em", lineHeight: 1 }}>
-        <span style={{ color: "#fff" }}>Bit</span>
+        <span style={{ color: bitColor }}>Bit</span>
         <span style={{ color: "#8b5cf6" }}>Code</span>
       </span>
     </span>

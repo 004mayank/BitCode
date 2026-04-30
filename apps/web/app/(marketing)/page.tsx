@@ -231,9 +231,9 @@ export default async function HomePage() {
             </div>
           </div>
 
-          {/* Right: fingerprint animation — left-aligned to close center gap */}
-          <div style={{ display: "flex", justifyContent: "flex-start", alignItems: "center" }}>
-            <BrainAnimation size={700} />
+          {/* Right: brain animation */}
+          <div style={{ display: "flex", justifyContent: "center", alignItems: "center" }}>
+            <BrainAnimation size={560} />
           </div>
         </div>
       </section>
