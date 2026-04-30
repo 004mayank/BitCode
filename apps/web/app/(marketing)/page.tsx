@@ -32,7 +32,7 @@ function GoogleIcon() {
 }
 
 const STATS = [
-  { value: "151", label: "Challenges" },
+  { value: "150+", label: "Challenges" },
   { value: "4", label: "Skill Dimensions" },
   { value: "12", label: "Languages" },
   { value: "∞", label: "Bounties" },
@@ -42,7 +42,7 @@ const FEATURES = [
   {
     icon: "⚡",
     title: "Real engineering problems",
-    body: "151 hand-crafted challenges across backend, frontend, security, AI and more. No toy examples.",
+    body: "150+ hand-crafted challenges across backend, frontend, security, AI and more. No toy examples.",
     color: "#3b82f6",
   },
   {
