@@ -533,11 +533,23 @@ export function ChallengeAttempt({ challengeId }: { challengeId: string }) {
   const [err, setErr]             = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"editor" | "score">("editor");
 
-  // Chat state
+  // ── Pre-flight thinking ───────────────────────────────────────────────────
+  const [thinkingPhase, setThinkingPhase] = useState<"pending" | "done">("done");
+  const [thinking, setThinking] = useState({ core: "", approach: "", risks: "" });
+  const [thinkingErr, setThinkingErr] = useState<string | null>(null);
+  const [thinkingSubmitted, setThinkingSubmitted] = useState<{ core: string; approach: string; risks: string } | null>(null);
+
+  // ── Chat state ────────────────────────────────────────────────────────────
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput]       = useState("");
+  const [chatReasoning, setChatReasoning] = useState("");
   const [chatLoading, setChatLoading]   = useState(false);
   const [chatErr, setChatErr]           = useState<string | null>(null);
+
+  // ── Post-turn reflections ─────────────────────────────────────────────────
+  // Maps assistant message index → reflection text the user has typed
+  const [reflections, setReflections]       = useState<Record<number, string>>({});
+  const [savedReflections, setSavedReflections] = useState<Record<number, string>>({}); // locked after save
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   // AI key state — loaded from localStorage, never from server
@@ -610,7 +622,31 @@ export function ChallengeAttempt({ challengeId }: { challengeId: string }) {
     try {
       const j = await apiPost<{ ok: true; attempt: Attempt }>("/api/attempts", { challengeId });
       setAttempt(j.attempt);
+      // Check if thinking already done for this attempt (returning user)
+      const alreadyDone = localStorage.getItem(`thinking-${j.attempt.id}`) === "done";
+      if (alreadyDone) {
+        const saved = localStorage.getItem(`thinking-data-${j.attempt.id}`);
+        if (saved) { try { setThinkingSubmitted(JSON.parse(saved)); } catch {} }
+        setThinkingPhase("done");
+      } else {
+        setThinkingPhase("pending");
+      }
     } catch (e: any) { setErr(String(e?.message || e)); }
+  }
+
+  function submitThinking() {
+    const minWords = (s: string) => s.trim().split(/\s+/).filter(Boolean).length;
+    if (minWords(thinking.core) < 5)     { setThinkingErr("Say a bit more about the core problem — at least 5 words."); return; }
+    if (minWords(thinking.approach) < 8) { setThinkingErr("Outline your approach in more detail — at least 8 words."); return; }
+    if (minWords(thinking.risks) < 4)    { setThinkingErr("What could go wrong? Add a bit more — at least 4 words."); return; }
+    setThinkingErr(null);
+    const data = { core: thinking.core.trim(), approach: thinking.approach.trim(), risks: thinking.risks.trim() };
+    if (attempt) {
+      localStorage.setItem(`thinking-${attempt.id}`, "done");
+      localStorage.setItem(`thinking-data-${attempt.id}`, JSON.stringify(data));
+    }
+    setThinkingSubmitted(data);
+    setThinkingPhase("done");
   }
 
   async function submit() {
@@ -694,19 +730,35 @@ export function ChallengeAttempt({ challengeId }: { challengeId: string }) {
   // ── Chat ─────────────────────────────────────────────────────────────────
 
   async function sendChat() {
-    const text = chatInput.trim();
-    if (!text || chatLoading || !aiKey) return;
+    const prompt   = chatInput.trim();
+    const reasoning = chatReasoning.trim();
+    if (!prompt || !reasoning || chatLoading || !aiKey) return;
     setChatErr(null);
 
-    const userMsg: ChatMessage = { role: "user", content: text, ts: Date.now() };
+    // Find the last saved reflection to include as context
+    const lastReflectionIdx = Math.max(-1, ...Object.keys(savedReflections).map(Number));
+    const lastReflection = lastReflectionIdx >= 0 ? savedReflections[lastReflectionIdx] : null;
+
+    // Build the message displayed in chat (shows both thinking + prompt)
+    const displayContent = `**My thinking:** ${reasoning}\n\n${prompt}`;
+    // Build what's sent to AI (includes reflection context if any)
+    const messageForAI = lastReflection
+      ? `[Previous reflection: ${lastReflection}]\n\n**My thinking:** ${reasoning}\n\n${prompt}`
+      : `**My thinking:** ${reasoning}\n\n${prompt}`;
+
+    const userMsg: ChatMessage = { role: "user", content: displayContent, ts: Date.now() };
     setChatMessages((m) => [...m, userMsg]);
     setChatInput("");
+    setChatReasoning("");
     setChatLoading(true);
 
     try {
       const history = chatMessages.map((m) => ({ role: m.role, content: m.content }));
+      const thinkingContext = thinkingSubmitted
+        ? `\n\nUser's initial analysis:\n- Core problem: ${thinkingSubmitted.core}\n- Approach: ${thinkingSubmitted.approach}\n- Risks: ${thinkingSubmitted.risks}`
+        : "";
       const challengeContext = challenge
-        ? `Title: ${challenge.title}\n\nProblem:\n${challenge.prompt}\n\nActive language: ${lang.label} (.${lang.ext}) - all code examples MUST be in ${lang.label} only.`
+        ? `Title: ${challenge.title}\n\nProblem:\n${challenge.prompt}\n\nActive language: ${lang.label} (.${lang.ext}) - all code examples MUST be in ${lang.label} only.${thinkingContext}`
         : undefined;
 
       const resp = await fetch(`${API_BASE}/api/chat`, {
@@ -716,7 +768,7 @@ export function ChallengeAttempt({ challengeId }: { challengeId: string }) {
           "x-ai-key":      aiKey,
           "x-ai-provider": aiProvider,
         },
-        body: JSON.stringify({ attemptId: attempt?.id, message: text, history, challengeContext })
+        body: JSON.stringify({ attemptId: attempt?.id, message: messageForAI, history, challengeContext })
       });
 
       const j = await resp.json();
@@ -726,8 +778,9 @@ export function ChallengeAttempt({ challengeId }: { challengeId: string }) {
     } catch (e: any) {
       const msg = String(e?.message || e);
       setChatErr(msg);
-      setChatMessages((m) => m.slice(0, -1)); // remove the user message so they can retry
-      setChatInput(text);
+      setChatMessages((m) => m.slice(0, -1));
+      setChatInput(prompt);
+      setChatReasoning(reasoning);
     } finally {
       setChatLoading(false);
     }
@@ -837,8 +890,97 @@ export function ChallengeAttempt({ challengeId }: { challengeId: string }) {
         </div>
       </div>
 
-      {/* ── Middle: Editor ── */}
+      {/* ── Middle: Pre-flight thinking OR Editor ── */}
       <div style={{ display: "flex", flexDirection: "column", gap: 10, overflow: "hidden", minHeight: 0 }}>
+
+        {/* Pre-flight thinking panel — shown after starting attempt, before editor unlocks */}
+        {attempt && thinkingPhase === "pending" && (
+          <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 12 }}>
+            <div className="card" style={{ padding: 24 }}>
+              <div style={{ marginBottom: 20 }}>
+                <div style={{ fontSize: 16, fontWeight: 800, marginBottom: 4 }}>Think before you prompt</div>
+                <div style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.6 }}>
+                  Answer these before the editor unlocks. Your reasoning is captured and scored — not just your output.
+                </div>
+              </div>
+
+              {/* Q1 */}
+              <div style={{ marginBottom: 18 }}>
+                <label style={{ display: "block", fontWeight: 700, fontSize: 12, marginBottom: 6, color: "var(--text-1)" }}>
+                  1. What is the core problem here?
+                  <span style={{ fontWeight: 400, color: "var(--text-3)", marginLeft: 6 }}>In your own words, one or two sentences.</span>
+                </label>
+                <textarea
+                  className="textarea"
+                  rows={3}
+                  placeholder="e.g. The dashboard query runs too slowly because it re-computes aggregations on every request from raw tables…"
+                  value={thinking.core}
+                  onChange={(e) => setThinking((t) => ({ ...t, core: e.target.value }))}
+                  style={{ width: "100%", resize: "vertical", fontSize: 13 }}
+                />
+              </div>
+
+              {/* Q2 */}
+              <div style={{ marginBottom: 18 }}>
+                <label style={{ display: "block", fontWeight: 700, fontSize: 12, marginBottom: 6, color: "var(--text-1)" }}>
+                  2. What is your approach?
+                  <span style={{ fontWeight: 400, color: "var(--text-3)", marginLeft: 6 }}>List the steps you plan to take.</span>
+                </label>
+                <textarea
+                  className="textarea"
+                  rows={4}
+                  placeholder="e.g. 1. Identify the slow query. 2. Create a materialized view that pre-computes the aggregation. 3. Add a unique index so REFRESH CONCURRENTLY works. 4. Schedule a pg_cron job every 5 mins…"
+                  value={thinking.approach}
+                  onChange={(e) => setThinking((t) => ({ ...t, approach: e.target.value }))}
+                  style={{ width: "100%", resize: "vertical", fontSize: 13 }}
+                />
+              </div>
+
+              {/* Q3 */}
+              <div style={{ marginBottom: 22 }}>
+                <label style={{ display: "block", fontWeight: 700, fontSize: 12, marginBottom: 6, color: "var(--text-1)" }}>
+                  3. What could go wrong?
+                  <span style={{ fontWeight: 400, color: "var(--text-3)", marginLeft: 6 }}>Edge cases, risks, unknowns.</span>
+                </label>
+                <textarea
+                  className="textarea"
+                  rows={3}
+                  placeholder="e.g. The view might be stale if pg_cron fails. Concurrent refresh requires a unique index. Large datasets could make the first refresh slow…"
+                  value={thinking.risks}
+                  onChange={(e) => setThinking((t) => ({ ...t, risks: e.target.value }))}
+                  style={{ width: "100%", resize: "vertical", fontSize: 13 }}
+                />
+              </div>
+
+              {thinkingErr && (
+                <div style={{ marginBottom: 12, padding: "8px 12px", borderRadius: 8, background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.2)", fontSize: 12, color: "var(--red)" }}>
+                  {thinkingErr}
+                </div>
+              )}
+
+              <button className="btn" style={{ width: "100%", justifyContent: "center" }} onClick={submitThinking}>
+                Lock in my thinking → Unlock editor
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Thinking summary — shown collapsed after submission */}
+        {attempt && thinkingPhase === "done" && thinkingSubmitted && (
+          <details className="card" style={{ padding: "10px 16px", flexShrink: 0, fontSize: 12 }}>
+            <summary style={{ cursor: "pointer", fontWeight: 700, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.07em", color: "var(--text-3)", userSelect: "none" }}>
+              ◎ Your initial analysis
+            </summary>
+            <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+              <div><span style={{ fontWeight: 600, color: "var(--text-2)" }}>Core problem: </span><span style={{ color: "var(--text-2)" }}>{thinkingSubmitted.core}</span></div>
+              <div><span style={{ fontWeight: 600, color: "var(--text-2)" }}>Approach: </span><span style={{ color: "var(--text-2)" }}>{thinkingSubmitted.approach}</span></div>
+              <div><span style={{ fontWeight: 600, color: "var(--text-2)" }}>Risks: </span><span style={{ color: "var(--text-2)" }}>{thinkingSubmitted.risks}</span></div>
+            </div>
+          </details>
+        )}
+
+        {/* Editor — locked until thinking is done */}
+        {(!attempt || thinkingPhase === "done") && (<>
         <div className="card" style={{ padding: "10px 14px", flexShrink: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
             <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", color: "var(--text-3)" }}>Language</span>
@@ -983,6 +1125,7 @@ export function ChallengeAttempt({ challengeId }: { challengeId: string }) {
             )}
           </div>
         )}
+        </>) /* end editor conditional */}
       </div>
 
       {/* ── Right: AI Chat ── */}
@@ -1030,13 +1173,13 @@ export function ChallengeAttempt({ challengeId }: { challengeId: string }) {
                   <div style={{ fontSize: 28, marginBottom: 10 }}>💬</div>
                   <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6, color: "var(--text-2)" }}>Ask the AI anything</div>
                   <div style={{ fontSize: 12, lineHeight: 1.6 }}>
-                    All your prompts are automatically captured and used to score your AI usage quality.
+                    Every message requires your thinking first — what you're doing and why. Your reasoning is scored alongside your output.
                   </div>
                 </div>
               ) : (
                 chatMessages.map((msg, i) => (
+                <div key={i}>
                 <ChatBubble
-                  key={i}
                   msg={msg}
                   onInsert={(code, langHint) => {
                     // Match fence language hint to one of our lang entries
@@ -1059,6 +1202,46 @@ export function ChallengeAttempt({ challengeId }: { challengeId: string }) {
                     setActiveTab("editor");
                   }}
                 />
+                {/* Post-turn reflection — appears after each assistant message */}
+                {msg.role === "assistant" && !chatLoading && (
+                  savedReflections[i] ? (
+                    <div style={{ margin: "4px 0 8px", padding: "7px 10px", borderRadius: 8, background: "rgba(59,130,246,0.06)", border: "1px solid rgba(59,130,246,0.15)", fontSize: 12, color: "var(--text-2)" }}>
+                      <span style={{ fontWeight: 600, color: "var(--blue)", marginRight: 6 }}>◎ Your takeaway:</span>{savedReflections[i]}
+                    </div>
+                  ) : (
+                    <div style={{ margin: "4px 0 8px", padding: "8px 10px", borderRadius: 8, background: "var(--bg)", border: "1px dashed var(--border)" }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-3)", marginBottom: 5 }}>
+                        What will you try next?
+                      </div>
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <input
+                          className="input"
+                          style={{ flex: 1, fontSize: 12, padding: "4px 8px" }}
+                          placeholder="Capture your next move… (optional)"
+                          value={reflections[i] ?? ""}
+                          onChange={(e) => setReflections((r) => ({ ...r, [i]: e.target.value }))}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" && reflections[i]?.trim()) {
+                              setSavedReflections((r) => ({ ...r, [i]: reflections[i].trim() }));
+                            }
+                          }}
+                        />
+                        <button
+                          className="btn sm ghost"
+                          onClick={() => { if (reflections[i]?.trim()) setSavedReflections((r) => ({ ...r, [i]: reflections[i].trim() })); }}
+                          disabled={!reflections[i]?.trim()}
+                          style={{ fontSize: 11, padding: "4px 8px" }}
+                        >Save</button>
+                        <button
+                          className="btn sm ghost"
+                          onClick={() => setSavedReflections((r) => ({ ...r, [i]: "__skip__" }))}
+                          style={{ fontSize: 11, padding: "4px 8px", color: "var(--text-3)" }}
+                        >Skip</button>
+                      </div>
+                    </div>
+                  )
+                )}
+                </div>
               ))
               )}
               {chatLoading && (
@@ -1083,31 +1266,58 @@ export function ChallengeAttempt({ challengeId }: { challengeId: string }) {
               </div>
             )}
 
-            {/* Input */}
+            {/* Input — annotated prompting */}
             <div style={{ padding: "10px 12px", borderTop: "1px solid var(--border)", flexShrink: 0 }}>
-              {!attempt && (
+              {(!attempt || thinkingPhase === "pending") && (
                 <div style={{ fontSize: 11, color: "var(--text-3)", marginBottom: 8, padding: "5px 8px", borderRadius: 6, background: "var(--bg)", border: "1px solid var(--border)", textAlign: "center" }}>
-                  Start an attempt to enable AI chat
+                  {!attempt ? "Start an attempt to enable AI chat" : "Complete your thinking analysis first"}
                 </div>
               )}
-              <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+              {/* My thinking field */}
+              <div style={{ marginBottom: 6 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-3)", marginBottom: 4 }}>
+                  My thinking <span style={{ color: "var(--red)", marginLeft: 2 }}>*</span>
+                </div>
                 <textarea
                   className="textarea"
-                  rows={3}
-                  placeholder={attempt ? "Ask about the problem, request hints… (Enter to send)" : "Start an attempt first"}
-                  value={chatInput}
-                  onChange={(e) => setChatInput(e.target.value)}
-                  onKeyDown={handleChatKey}
-                  disabled={!attempt || chatLoading}
-                  style={{ flex: 1, resize: "none", fontSize: 13 }}
+                  rows={2}
+                  placeholder="What are you trying to do and why? What have you already tried?"
+                  value={chatReasoning}
+                  onChange={(e) => setChatReasoning(e.target.value)}
+                  disabled={!attempt || chatLoading || thinkingPhase === "pending"}
+                  style={{ width: "100%", resize: "none", fontSize: 12, borderColor: chatReasoning.trim() ? undefined : "rgba(239,68,68,0.3)" }}
                 />
-                <button className="btn" onClick={sendChat} disabled={!attempt || !chatInput.trim() || chatLoading}
-                  style={{ padding: "9px 12px", alignSelf: "flex-end", flexShrink: 0 }} title="Send (Enter)">
-                  ↑
-                </button>
               </div>
-              <div style={{ fontSize: 10, color: "var(--text-3)", marginTop: 5 }}>
-                Shift+Enter for new line · prompts auto-logged
+              {/* My prompt field */}
+              <div style={{ marginBottom: 6 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-3)", marginBottom: 4 }}>
+                  My prompt
+                </div>
+                <div style={{ display: "flex", gap: 6, alignItems: "flex-end" }}>
+                  <textarea
+                    className="textarea"
+                    rows={2}
+                    placeholder={attempt ? "What do you want the AI to do? (Enter to send)" : "Start an attempt first"}
+                    value={chatInput}
+                    onChange={(e) => setChatInput(e.target.value)}
+                    onKeyDown={handleChatKey}
+                    disabled={!attempt || chatLoading || thinkingPhase === "pending"}
+                    style={{ flex: 1, resize: "none", fontSize: 13 }}
+                  />
+                  <button className="btn" onClick={sendChat}
+                    disabled={!attempt || !chatInput.trim() || !chatReasoning.trim() || chatLoading || thinkingPhase === "pending"}
+                    style={{ padding: "9px 12px", alignSelf: "flex-end", flexShrink: 0 }} title="Send (Enter)">
+                    ↑
+                  </button>
+                </div>
+              </div>
+              {!chatReasoning.trim() && attempt && thinkingPhase === "done" && (
+                <div style={{ fontSize: 10, color: "rgba(239,68,68,0.7)", marginBottom: 2 }}>
+                  Fill in your thinking before sending — it's part of your score.
+                </div>
+              )}
+              <div style={{ fontSize: 10, color: "var(--text-3)" }}>
+                Shift+Enter for new line · reasoning + prompts auto-logged
               </div>
             </div>
           </>
