@@ -128,7 +128,17 @@ const DEFAULT_LANG = LANGUAGES[0];
 
 type Challenge      = { id: string; title: string; description: string; prompt: string; tags: string[]; difficulty: number; rubric?: any; starterSchema?: string | null };
 type Attempt        = { id: string; challengeId: string; status: string; submissionUrl?: string | null };
-type ScoreBreakdown = { promptQuality: number; iterationIntelligence: number; efficiency: number; correctnessProxy: number; total: number; notes: string[] };
+type DimensionScore = { score: number; weight: number; notes: string[] };
+type ScoreBreakdown = {
+  promptQuality:        DimensionScore;
+  iterationIntelligence: DimensionScore;
+  validationDebugging:  DimensionScore;
+  efficiency:           DimensionScore;
+  outputQuality:        DimensionScore;
+  total:   number;
+  method:  string;
+  summary?: string;
+};
 type ChatMessage    = { role: "user" | "assistant"; content: string; ts: number };
 type AIProvider     = "anthropic" | "openai";
 
@@ -182,15 +192,20 @@ function DiffBadge({ d }: { d: number }) {
   );
 }
 
-function ScoreBar({ label, value }: { label: string; value: number }) {
-  const c = scoreColor(value);
+function ScoreBar({ label, dim }: { label: string; dim: DimensionScore }) {
+  const c = scoreColor(dim.score);
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
       <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
         <span style={{ color: "var(--text-2)" }}>{label}</span>
-        <span style={{ fontWeight: 700, color: c }}>{value}</span>
+        <span style={{ fontWeight: 700, color: c }}>{dim.score}</span>
       </div>
-      <div className="progress-track"><div className="progress-fill" style={{ width: `${value}%`, background: c }} /></div>
+      <div className="progress-track"><div className="progress-fill" style={{ width: `${dim.score}%`, background: c }} /></div>
+      {dim.notes?.length > 0 && (
+        <div style={{ fontSize: 11, color: "var(--text-3)", lineHeight: 1.5, paddingLeft: 2 }}>
+          {dim.notes.map((n, i) => <div key={i}>· {n}</div>)}
+        </div>
+      )}
     </div>
   );
 }
@@ -209,22 +224,26 @@ function ScorePanel({ score }: { score: ScoreBreakdown }) {
         </svg>
         <div>
           <div style={{ fontWeight: 800, fontSize: 18 }}>AI Skill Score</div>
-          <div style={{ color: "var(--text-2)", fontSize: 13, marginTop: 4 }}>
+          <div style={{ color: "var(--text-2)", fontSize: 13, marginTop: 2 }}>
             {score.total >= 75 ? "🏆 Great AI workflow" : score.total >= 50 ? "👍 Solid attempt" : "📈 Needs improvement"}
+          </div>
+          <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 4 }}>
+            scored via {score.method}
           </div>
         </div>
       </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        <ScoreBar label="Prompt Quality"         value={score.promptQuality} />
-        <ScoreBar label="Iteration Intelligence" value={score.iterationIntelligence} />
-        <ScoreBar label="Efficiency"             value={score.efficiency} />
-        <ScoreBar label="Correctness Proxy"      value={score.correctnessProxy} />
-      </div>
-      {score.notes.length > 0 && (
-        <div style={{ padding: 10, borderRadius: 8, background: "var(--yellow-dim)", border: "1px solid rgba(245,158,11,0.2)" }}>
-          {score.notes.map((n, i) => <div key={i} style={{ fontSize: 12, color: "var(--yellow)" }}>⚠ {n}</div>)}
+      {score.summary && (
+        <div style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.7, padding: "10px 14px", borderRadius: 8, background: "var(--bg)", border: "1px solid var(--border)" }}>
+          {score.summary}
         </div>
       )}
+      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <ScoreBar label="Prompt Quality"          dim={score.promptQuality} />
+        <ScoreBar label="Iteration Intelligence"  dim={score.iterationIntelligence} />
+        <ScoreBar label="Validation & Debugging"  dim={score.validationDebugging} />
+        <ScoreBar label="Output Quality"          dim={score.outputQuality} />
+        <ScoreBar label="Efficiency"              dim={score.efficiency} />
+      </div>
     </div>
   );
 }
@@ -653,7 +672,7 @@ export function ChallengeAttempt({ challengeId }: { challengeId: string }) {
     if (!attempt) return;
     setErr(null); setEvaluating(true); setScore(null); setActiveTab("score");
     try {
-      await apiPost("/api/attempts/submit", { attemptId: attempt.id, submissionUrl: null });
+      await apiPost("/api/attempts/submit", { attemptId: attempt.id });
       setAttempt({ ...attempt, status: "SUBMITTED" });
       const guestId = (() => { try { return localStorage.getItem("bc-guest-id") || ""; } catch { return ""; } })();
       const resp = await fetch(`${API_BASE}/api/attempts/${attempt.id}/evaluate/stream`, {

@@ -23,7 +23,7 @@ export const LogPromptEventSchema = z.object({
 
 export const SubmitAttemptSchema = z.object({
   attemptId: z.string().min(6),
-  submissionUrl: z.string().url().max(1000),
+  submissionUrl: z.string().url().max(1000).optional(),
   summary: z.string().min(1).max(8000).optional()
 });
 
