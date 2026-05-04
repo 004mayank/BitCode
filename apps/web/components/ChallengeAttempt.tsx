@@ -862,11 +862,22 @@ export function ChallengeAttempt({ challengeId }: { challengeId: string }) {
             </div>
           )}
 
-          {/* Schema — shown for database/SQL challenges that have a starterSchema */}
-          {challenge?.starterSchema && (
+          {/* Setup & Resources — shown for challenges that have a starterSchema */}
+          {challenge?.starterSchema && (() => {
+            const tags = challenge.tags ?? [];
+            const isDB = tags.includes("database") || tags.includes("sql");
+            const isAI = tags.includes("ai") || tags.includes("rag");
+            const isDebug = tags.includes("debugging");
+            const isDevOps = tags.includes("devops") && !isDB;
+            const isSecurity = tags.includes("security") && !isDB && !isDebug;
+            const icon = isDB ? "🗄" : isAI ? "🤖" : isDebug ? "🐛" : isDevOps ? "⚙️" : isSecurity ? "🔒" : "📦";
+            const label = isDB ? "Database Schema" : isAI ? "AI Setup & Resources" : isDebug ? "Starter / Buggy Code" : isDevOps ? "Infrastructure Config" : isSecurity ? "Security Context" : "Setup & Resources";
+            const langHint = isDB ? "sql" : isAI ? "python" : isDebug ? "typescript" : isDevOps ? "yaml" : "text";
+            const loadLangId = isDB ? "sql" : isAI ? "python" : "typescript";
+            return (
             <div style={{ marginTop: 12 }}>
               <div style={{ fontWeight: 700, fontSize: 10, letterSpacing: "0.07em", textTransform: "uppercase", color: "var(--text-3)", marginBottom: 6, display: "flex", alignItems: "center", gap: 6 }}>
-                <span>🗄</span> Database Schema
+                <span>{icon}</span> {label}
               </div>
               <div style={{ borderRadius: 10, overflow: "hidden", border: "1px solid var(--border)" }}>
                 <div style={{
@@ -876,14 +887,14 @@ export function ChallengeAttempt({ challengeId }: { challengeId: string }) {
                   fontSize: 11, color: "#7c8db0", fontFamily: "monospace",
                   display: "flex", alignItems: "center", justifyContent: "space-between",
                 }}>
-                  <span>sql — read-only reference</span>
+                  <span>{langHint} — read-only reference</span>
                   <button
                     className="btn sm"
                     style={{ fontSize: 10, padding: "1px 8px" }}
                     onClick={() => {
                       setCode(challenge.starterSchema!);
-                      const sqlLang = LANGUAGES.find((l) => l.id === "sql");
-                      if (sqlLang) setLang(sqlLang);
+                      const targetLang = LANGUAGES.find((l) => l.id === loadLangId) ?? LANGUAGES.find((l) => l.id === "sql");
+                      if (targetLang) setLang(targetLang);
                       setActiveTab("editor");
                     }}
                   >
@@ -905,7 +916,7 @@ export function ChallengeAttempt({ challengeId }: { challengeId: string }) {
                 </pre>
               </div>
             </div>
-          )}
+          );})()}
         </div>
       </div>
 
