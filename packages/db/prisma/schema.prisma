@@ -348,3 +348,59 @@ model UserStats {
 
   user User @relation(fields: [userId], references: [id])
 }
+
+// ─── External Bounties (aggregated from Algora, HackerOne, Intigriti, Immunefi, Gitcoin) ───
+
+enum ExternalBountySource {
+  ALGORA
+  HACKERONE
+  INTIGRITI
+  IMMUNEFI
+  GITCOIN
+  ISSUEHUNT
+  OTHER
+}
+
+enum ExternalBountyType {
+  OSS          // open-source coding bounty (Algora, IssueHunt)
+  BUG_BOUNTY   // security vulnerability bounty (HackerOne, Intigriti)
+  GRANT        // ecosystem grant / retroactive funding (Gitcoin, Immunefi)
+}
+
+model ExternalBounty {
+  id          String   @id @default(cuid())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  fetchedAt   DateTime @default(now())
+
+  // Identity — externalId + source must be unique to prevent duplicates
+  source      ExternalBountySource
+  externalId  String
+
+  // Display
+  title       String
+  description String   @default("")
+  url         String
+  company     String
+  logoUrl     String?
+
+  // Classification
+  type        ExternalBountyType @default(OSS)
+  tags        String[]
+  isOpen      Boolean  @default(true)
+
+  // Reward (may be approximate / range)
+  rewardMin   Int?     // USD cents
+  rewardMax   Int?     // USD cents
+  rewardLabel String?  // display string e.g. "$4,000" or "up to $250,000" or "€10,000"
+  currency    String   @default("USD")
+
+  // Timing
+  deadline    DateTime?
+  expiresAt   DateTime? // when to hide if not refreshed
+
+  @@unique([source, externalId])
+  @@index([source, isOpen])
+  @@index([type, isOpen])
+  @@index([fetchedAt])
+}
