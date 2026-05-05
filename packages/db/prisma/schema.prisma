@@ -87,6 +87,8 @@ model User {
   payouts Payout[]
   stats UserStats?
   externalApplications ExternalApplication[]
+  postedJobs           Job[]
+  candidateMatches     JobCandidate[]
 
   // NextAuth relations
   accounts Account[]
@@ -435,4 +437,98 @@ model ExternalApplication {
   @@unique([userId, externalBountyId])
   @@index([userId, createdAt])
   @@index([userId, status])
+}
+
+// ─── Jobs / Hiring (Pillar 3) ─────────────────────────────────────────────────
+
+enum JobStatus {
+  DRAFT
+  OPEN
+  CLOSED
+  FILLED
+}
+
+enum JobType {
+  FULL_TIME
+  PART_TIME
+  CONTRACT
+  INTERNSHIP
+  FREELANCE
+}
+
+enum CandidateStatus {
+  NEW
+  VIEWED
+  SHORTLISTED
+  CONTACTED
+  REJECTED
+}
+
+model Job {
+  id          String    @id @default(cuid())
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  postedById  String
+  company     String
+  logoUrl     String?
+  title       String
+  description String
+  location    String?
+  remote      Boolean   @default(true)
+  jobType     JobType   @default(FULL_TIME)
+
+  // Tech/skill tags — used to drive GitHub candidate search
+  tags        String[]
+
+  // Compensation
+  salaryMin   Int?      // USD annual, in cents
+  salaryMax   Int?
+  currency    String    @default("USD")
+
+  applyUrl    String?   // external apply / contact link
+  status      JobStatus @default(OPEN)
+
+  postedBy    User          @relation(fields: [postedById], references: [id])
+  candidates  JobCandidate[]
+
+  @@index([status, createdAt])
+  @@index([postedById])
+}
+
+model JobCandidate {
+  id            String          @id @default(cuid())
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  jobId         String
+  githubLogin   String
+
+  // Linked BitCode user (if they've signed up)
+  userId        String?
+
+  // GitHub profile snapshot (cached at discovery time)
+  githubName    String?
+  githubAvatar  String?
+  githubBio     String?
+  githubUrl     String?
+  followers     Int             @default(0)
+  publicRepos   Int             @default(0)
+
+  // Scoring
+  matchScore    Int             @default(0)  // 0-100 composite
+  bitcodeScore  Int             @default(0)  // UserStats.reputationPts at discovery time
+  matchedRepos  Json?                        // [{name, url, stars, contributions}]
+  matchedSkills String[]
+
+  // HR workflow
+  status        CandidateStatus @default(NEW)
+  hrNotes       String?
+
+  job  Job   @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  user User? @relation(fields: [userId], references: [id])
+
+  @@unique([jobId, githubLogin])
+  @@index([jobId, matchScore])
+  @@index([userId])
 }
