@@ -193,19 +193,163 @@ function InternalBounties() {
   );
 }
 
+// ─── Application tracking types & helpers ─────────────────────────────────────
+
+type AppStatus = "SAVED" | "APPLIED" | "IN_PROGRESS" | "SUBMITTED" | "WON" | "LOST";
+
+interface AppRecord {
+  externalBountyId: string;
+  status: AppStatus;
+  submissionUrl?: string | null;
+  notes?: string | null;
+}
+
+const STATUS_META: Record<AppStatus, { label: string; emoji: string; color: string }> = {
+  SAVED:       { label: "Saved",       emoji: "🔖", color: "#94a3b8" },
+  APPLIED:     { label: "Applied",     emoji: "📨", color: "#60a5fa" },
+  IN_PROGRESS: { label: "In Progress", emoji: "⚙️",  color: "#f59e0b" },
+  SUBMITTED:   { label: "Submitted",   emoji: "✅", color: "#34d399" },
+  WON:         { label: "Won! 🎉",     emoji: "🏆", color: "#10b981" },
+  LOST:        { label: "Closed",      emoji: "❌", color: "#f87171" },
+};
+
+const ALL_STATUSES: AppStatus[] = ["SAVED", "APPLIED", "IN_PROGRESS", "SUBMITTED", "WON", "LOST"];
+
+// ─── Tracker popover ──────────────────────────────────────────────────────────
+
+function TrackerPanel({
+  bountyId,
+  current,
+  onSave,
+  onRemove,
+  onClose,
+}: {
+  bountyId: string;
+  current: AppRecord | undefined;
+  onSave: (status: AppStatus, submissionUrl: string, notes: string) => void;
+  onRemove: () => void;
+  onClose: () => void;
+}) {
+  const [status, setStatus]  = useState<AppStatus>(current?.status ?? "SAVED");
+  const [url, setUrl]        = useState(current?.submissionUrl ?? "");
+  const [notes, setNotes]    = useState(current?.notes ?? "");
+  const [saving, setSaving]  = useState(false);
+
+  async function handleSave() {
+    setSaving(true);
+    await onSave(status, url, notes);
+    setSaving(false);
+  }
+
+  return (
+    <div
+      onClick={(e) => e.stopPropagation()}
+      style={{
+        marginTop: 12,
+        padding: "14px 16px",
+        background: "var(--surface-1, rgba(15,23,42,0.95))",
+        border: "1px solid var(--border)",
+        borderRadius: 12,
+        display: "flex",
+        flexDirection: "column",
+        gap: 12,
+      }}
+    >
+      <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-2)", letterSpacing: "0.05em", textTransform: "uppercase" }}>
+        Track your progress
+      </div>
+
+      {/* Status buttons */}
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        {ALL_STATUSES.map((s) => {
+          const m = STATUS_META[s];
+          const active = status === s;
+          return (
+            <button
+              key={s}
+              onClick={() => setStatus(s)}
+              style={{
+                padding: "5px 12px",
+                borderRadius: 20,
+                fontSize: 12,
+                fontWeight: active ? 700 : 500,
+                cursor: "pointer",
+                border: `1px solid ${active ? m.color : "var(--border)"}`,
+                background: active ? m.color + "22" : "transparent",
+                color: active ? m.color : "var(--text-3)",
+                transition: "all 0.15s",
+              }}
+            >
+              {m.emoji} {m.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Submission URL — show when submitted/won */}
+      {(status === "SUBMITTED" || status === "WON") && (
+        <input
+          className="input"
+          placeholder="Submission / PR / report URL (optional)"
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          style={{ fontSize: 13 }}
+        />
+      )}
+
+      {/* Notes */}
+      <textarea
+        className="input"
+        placeholder="Private notes (optional)…"
+        value={notes}
+        onChange={(e) => setNotes(e.target.value)}
+        rows={2}
+        style={{ fontSize: 13, resize: "vertical" }}
+      />
+
+      <div style={{ display: "flex", gap: 8 }}>
+        <button
+          className="btn sm"
+          onClick={handleSave}
+          disabled={saving}
+          style={{ flex: 1 }}
+        >
+          {saving ? "Saving…" : current ? "Update" : "Save"}
+        </button>
+        {current && (
+          <button
+            className="btn sm secondary"
+            onClick={onRemove}
+            style={{ color: "var(--red)" }}
+          >
+            Remove
+          </button>
+        )}
+        <button className="btn sm secondary" onClick={onClose}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
 // ─── External bounties panel ──────────────────────────────────────────────────
 
 function ExternalBounties() {
-  const [items, setItems]   = useState<ExternalBounty[]>([]);
-  const [total, setTotal]   = useState(0);
-  const [lastSync, setLastSync] = useState<string | null>(null);
-  const [err, setErr]       = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [items, setItems]         = useState<ExternalBounty[]>([]);
+  const [total, setTotal]         = useState(0);
+  const [lastSync, setLastSync]   = useState<string | null>(null);
+  const [err, setErr]             = useState<string | null>(null);
+  const [loading, setLoading]     = useState(true);
   const [typeFilter, setTypeFilter] = useState("All");
-  const [search, setSearch] = useState("");
-  const [page, setPage]     = useState(1);
+  const [showTracked, setShowTracked] = useState(false);
+  const [search, setSearch]       = useState("");
+  const [page, setPage]           = useState(1);
   const limit = 50;
 
+  // Tracking state: bountyId → AppRecord
+  const [tracking, setTracking]   = useState<Record<string, AppRecord>>({});
+  const [openTracker, setOpenTracker] = useState<string | null>(null);
+
+  // Load bounties
   useEffect(() => {
     setLoading(true);
     const params = new URLSearchParams({ page: String(page), limit: String(limit) });
@@ -224,45 +368,90 @@ function ExternalBounties() {
       .finally(() => setLoading(false));
   }, [typeFilter, page]);
 
-  // client-side search filter (already sent as query param but also filter locally for instant UX)
-  const filtered = search.trim()
-    ? items.filter(
-        (b) =>
-          b.title.toLowerCase().includes(search.toLowerCase()) ||
-          b.company.toLowerCase().includes(search.toLowerCase()) ||
-          b.tags.some((t) => t.toLowerCase().includes(search.toLowerCase()))
-      )
-    : items;
+  // Load user's tracked applications
+  useEffect(() => {
+    fetch("/api/external-applications", { cache: "no-store" })
+      .then((r) => r.ok ? r.json() : null)
+      .then((j: any) => {
+        if (!j) return;
+        const map: Record<string, AppRecord> = {};
+        for (const a of j.applications ?? []) map[a.externalBountyId] = a;
+        setTracking(map);
+      })
+      .catch(() => {});
+  }, []);
 
-  const ossCount  = items.filter((b) => b.type === "OSS").length;
-  const bugCount  = items.filter((b) => b.type === "BUG_BOUNTY").length;
-  const grantCount = items.filter((b) => b.type === "GRANT").length;
+  async function saveTracking(bountyId: string, status: AppStatus, submissionUrl: string, notes: string) {
+    const res = await fetch("/api/external-applications", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ externalBountyId: bountyId, status, submissionUrl: submissionUrl || null, notes: notes || null }),
+    });
+    if (res.ok) {
+      const j = await res.json();
+      setTracking((prev) => ({ ...prev, [bountyId]: j.application }));
+    }
+    setOpenTracker(null);
+  }
+
+  async function removeTracking(bountyId: string) {
+    await fetch("/api/external-applications", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ externalBountyId: bountyId, status: null }),
+    });
+    setTracking((prev) => {
+      const next = { ...prev };
+      delete next[bountyId];
+      return next;
+    });
+    setOpenTracker(null);
+  }
+
+  const filtered = items.filter((b) => {
+    if (showTracked && !tracking[b.id]) return false;
+    if (!search.trim()) return true;
+    const q = search.toLowerCase();
+    return b.title.toLowerCase().includes(q) || b.company.toLowerCase().includes(q) || b.tags.some((t) => t.toLowerCase().includes(q));
+  });
+
+  const trackedCount = Object.keys(tracking).length;
+  const ossCount     = items.filter((b) => b.type === "OSS").length;
+  const bugCount     = items.filter((b) => b.type === "BUG_BOUNTY").length;
+  const grantCount   = items.filter((b) => b.type === "GRANT").length;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
       {/* Stats */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
-        <StatTile label="Total Listings"  value={total}      color="var(--blue)"   />
-        <StatTile label="OSS Bounties"    value={ossCount}   color="var(--green)"  />
-        <StatTile label="Bug Bounties"    value={bugCount}   color="var(--yellow)" />
-        <StatTile label="Grants"          value={grantCount} color="var(--purple, #7c3aed)" />
+        <StatTile label="Total Listings"  value={total}        color="var(--blue)"   />
+        <StatTile label="OSS Bounties"    value={ossCount}     color="var(--green)"  />
+        <StatTile label="Bug Bounties"    value={bugCount}     color="var(--yellow)" />
+        <StatTile label="Tracking"        value={trackedCount} color="#7c3aed"        />
       </div>
 
-      {/* Last sync + type filter */}
+      {/* Filter bar */}
       <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
         {EXTERNAL_TYPES.map((t) => (
           <button
             key={t}
-            className={`btn sm ${typeFilter === t ? "" : "secondary"}`}
-            onClick={() => { setTypeFilter(t); setPage(1); }}
+            className={`btn sm ${typeFilter === t && !showTracked ? "" : "secondary"}`}
+            onClick={() => { setTypeFilter(t); setShowTracked(false); setPage(1); }}
           >
             {t === "All" ? "All" : TYPE_META[t]?.emoji + " " + TYPE_META[t]?.label}
           </button>
         ))}
+        <button
+          className={`btn sm ${showTracked ? "" : "secondary"}`}
+          onClick={() => setShowTracked((v) => !v)}
+          style={{ color: showTracked ? "#7c3aed" : undefined }}
+        >
+          🔖 My Tracked {trackedCount > 0 ? `(${trackedCount})` : ""}
+        </button>
         <input
           className="input"
-          style={{ maxWidth: 220, marginLeft: "auto" }}
-          placeholder="Search company, tags…"
+          style={{ maxWidth: 200, marginLeft: "auto" }}
+          placeholder="Search…"
           value={search}
           onChange={(e) => { setSearch(e.target.value); setPage(1); }}
         />
@@ -273,154 +462,154 @@ function ExternalBounties() {
           Last synced: {new Date(lastSync).toLocaleString()}
         </div>
       )}
-
       {err && <div style={{ color: "var(--red)" }}>{err}</div>}
 
       {loading ? (
         <div style={{ padding: 40, textAlign: "center", color: "var(--text-3)" }}>Loading external bounties…</div>
       ) : filtered.length === 0 ? (
         <div style={{ padding: 40, textAlign: "center", color: "var(--text-3)" }}>
-          {total === 0
-            ? "No bounties synced yet. The cron runs every 6 hours."
-            : "No results match your filter."}
+          {showTracked ? "You haven't tracked any bounties yet." : total === 0 ? "No bounties synced yet." : "No results match your filter."}
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {filtered.map((b) => {
-            const src = SOURCE_META[b.source] ?? SOURCE_META.OTHER;
-            const tp  = TYPE_META[b.type] ?? { label: b.type, emoji: "•" };
+            const src     = SOURCE_META[b.source] ?? SOURCE_META.OTHER;
+            const tp      = TYPE_META[b.type] ?? { label: b.type, emoji: "•" };
+            const app     = tracking[b.id];
+            const appMeta = app ? STATUS_META[app.status] : null;
+            const isOpen  = openTracker === b.id;
+
             return (
-              <a
-                key={b.id}
-                href={b.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{ textDecoration: "none", color: "inherit" }}
-              >
-                <div className="card card-hover" style={{ padding: 18 }}>
-                  <div style={{ display: "flex", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
-                    {/* Company logo or initial */}
-                    <div style={{
-                      width: 48,
-                      height: 48,
-                      borderRadius: 10,
-                      overflow: "hidden",
-                      flexShrink: 0,
-                      background: "var(--surface-2, rgba(148,163,184,0.08))",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      fontSize: 20,
-                      border: "1px solid var(--border)",
-                    }}>
-                      {b.logoUrl ? (
-                        <img
-                          src={b.logoUrl}
-                          alt={b.company}
-                          style={{ width: "100%", height: "100%", objectFit: "contain" }}
-                          onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
-                        />
-                      ) : (
-                        b.company.charAt(0).toUpperCase()
+              <div key={b.id} className="card" style={{ padding: 18 }}>
+                <div style={{ display: "flex", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
+                  {/* Company logo */}
+                  <div style={{
+                    width: 48, height: 48, borderRadius: 10, overflow: "hidden", flexShrink: 0,
+                    background: "rgba(148,163,184,0.08)", display: "flex", alignItems: "center",
+                    justifyContent: "center", fontSize: 20, border: "1px solid var(--border)",
+                  }}>
+                    {b.logoUrl ? (
+                      <img src={b.logoUrl} alt={b.company}
+                        style={{ width: "100%", height: "100%", objectFit: "contain" }}
+                        onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                    ) : b.company.charAt(0).toUpperCase()}
+                  </div>
+
+                  {/* Main content */}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                      <div style={{ fontWeight: 700, fontSize: 15 }}>{b.title}</div>
+                      <span style={{
+                        fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 20,
+                        background: src.color + "22", color: src.color, border: `1px solid ${src.color}44`,
+                        textTransform: "uppercase", letterSpacing: "0.05em",
+                      }}>{src.label}</span>
+                      <span style={{
+                        fontSize: 11, color: "var(--text-3)", background: "rgba(148,163,184,0.08)",
+                        padding: "2px 7px", borderRadius: 20, border: "1px solid var(--border)",
+                      }}>{tp.emoji} {tp.label}</span>
+                      {/* Tracked status badge */}
+                      {appMeta && (
+                        <span style={{
+                          fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 20,
+                          background: appMeta.color + "22", color: appMeta.color,
+                          border: `1px solid ${appMeta.color}44`,
+                        }}>{appMeta.emoji} {appMeta.label}</span>
                       )}
                     </div>
 
-                    {/* Main content */}
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                        <div style={{ fontWeight: 700, fontSize: 15 }}>{b.title}</div>
-                        {/* Source badge */}
-                        <span style={{
-                          fontSize: 10,
-                          fontWeight: 700,
-                          padding: "2px 7px",
-                          borderRadius: 20,
-                          background: src.color + "22",
-                          color: src.color,
-                          border: `1px solid ${src.color}44`,
-                          textTransform: "uppercase",
-                          letterSpacing: "0.05em",
-                        }}>
-                          {src.label}
-                        </span>
-                        {/* Type badge */}
-                        <span style={{
-                          fontSize: 11,
-                          color: "var(--text-3)",
-                          background: "rgba(148,163,184,0.08)",
-                          padding: "2px 7px",
-                          borderRadius: 20,
-                          border: "1px solid var(--border)",
-                        }}>
-                          {tp.emoji} {tp.label}
-                        </span>
+                    <div style={{ color: "var(--text-3)", marginTop: 3, fontSize: 12 }}>{b.company}</div>
+
+                    {b.description && (
+                      <div style={{ color: "var(--text-2)", marginTop: 6, fontSize: 13, lineHeight: 1.6 }}>
+                        {b.description.slice(0, 160)}{b.description.length > 160 ? "…" : ""}
                       </div>
+                    )}
 
-                      <div style={{ color: "var(--text-3)", marginTop: 3, fontSize: 12 }}>{b.company}</div>
+                    {/* Submission URL if tracked */}
+                    {app?.submissionUrl && (
+                      <a href={app.submissionUrl} target="_blank" rel="noopener noreferrer"
+                        style={{ fontSize: 12, color: "var(--blue)", display: "block", marginTop: 4 }}
+                        onClick={(e) => e.stopPropagation()}>
+                        🔗 My submission ↗
+                      </a>
+                    )}
 
-                      {b.description && (
-                        <div style={{ color: "var(--text-2)", marginTop: 6, fontSize: 13, lineHeight: 1.6 }}>
-                          {b.description.slice(0, 160)}{b.description.length > 160 ? "…" : ""}
-                        </div>
+                    <div style={{ display: "flex", gap: 10, marginTop: 10, flexWrap: "wrap", alignItems: "center" }}>
+                      {b.rewardLabel && (
+                        <span style={{
+                          fontSize: 13, fontWeight: 700, color: "var(--green)",
+                          background: "var(--green-dim)", padding: "3px 10px", borderRadius: 8,
+                          border: "1px solid rgba(16,185,129,0.25)",
+                        }}>{b.rewardLabel}</span>
+                      )}
+                      {b.tags.slice(0, 3).map((tag) => (
+                        <span key={tag} style={{
+                          fontSize: 11, color: "var(--text-3)", padding: "1px 6px",
+                          background: "rgba(148,163,184,0.06)", borderRadius: 6, border: "1px solid var(--border)",
+                        }}>{tag}</span>
+                      ))}
+                      {b.deadline && (
+                        <span style={{ fontSize: 12, color: new Date(b.deadline) < new Date() ? "var(--red)" : "var(--yellow)" }}>
+                          ⏱ {diffDays(b.deadline)}
+                        </span>
                       )}
 
-                      <div style={{ display: "flex", gap: 12, marginTop: 10, flexWrap: "wrap", alignItems: "center" }}>
-                        {b.rewardLabel && (
-                          <span style={{
-                            fontSize: 13,
-                            fontWeight: 700,
-                            color: "var(--green)",
-                            background: "var(--green-dim)",
-                            padding: "3px 10px",
-                            borderRadius: 8,
-                            border: "1px solid rgba(16,185,129,0.25)",
-                          }}>
-                            {b.rewardLabel}
-                          </span>
-                        )}
-                        {b.tags.slice(0, 4).map((tag) => (
-                          <span key={tag} style={{ fontSize: 11, color: "var(--text-3)", padding: "1px 6px", background: "rgba(148,163,184,0.06)", borderRadius: 6, border: "1px solid var(--border)" }}>
-                            {tag}
-                          </span>
-                        ))}
-                        {b.deadline && (
-                          <span style={{ fontSize: 12, color: new Date(b.deadline) < new Date() ? "var(--red)" : "var(--yellow)", marginLeft: "auto" }}>
-                            ⏱ {diffDays(b.deadline)}
-                          </span>
-                        )}
-                        <span style={{ fontSize: 12, color: "var(--blue)", fontWeight: 600, marginLeft: b.deadline ? 0 : "auto" }}>
+                      <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+                        {/* Track button */}
+                        <button
+                          className="btn sm secondary"
+                          onClick={() => setOpenTracker(isOpen ? null : b.id)}
+                          style={{
+                            fontSize: 12,
+                            color: app ? appMeta?.color : "var(--text-3)",
+                            borderColor: app ? appMeta?.color + "66" : undefined,
+                          }}
+                        >
+                          {app ? `${appMeta?.emoji} Tracking` : "🔖 Track"}
+                        </button>
+                        {/* Apply link */}
+                        <a
+                          href={b.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{ fontSize: 12, color: "var(--blue)", fontWeight: 600, textDecoration: "none" }}
+                          onClick={() => {
+                            // Auto-save APPLIED status when they click through (if not already tracked)
+                            if (!app) {
+                              saveTracking(b.id, "APPLIED", "", "");
+                            }
+                          }}
+                        >
                           Apply ↗
-                        </span>
+                        </a>
                       </div>
                     </div>
+
+                    {/* Tracker panel (inline, opens below) */}
+                    {isOpen && (
+                      <TrackerPanel
+                        bountyId={b.id}
+                        current={app}
+                        onSave={(status, url, notes) => saveTracking(b.id, status, url, notes)}
+                        onRemove={() => removeTracking(b.id)}
+                        onClose={() => setOpenTracker(null)}
+                      />
+                    )}
                   </div>
                 </div>
-              </a>
+              </div>
             );
           })}
         </div>
       )}
 
       {/* Pagination */}
-      {total > limit && (
+      {total > limit && !showTracked && (
         <div style={{ display: "flex", gap: 8, justifyContent: "center", alignItems: "center", paddingTop: 8 }}>
-          <button
-            className="btn sm secondary"
-            disabled={page === 1}
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-          >
-            ← Prev
-          </button>
-          <span style={{ fontSize: 13, color: "var(--text-2)" }}>
-            Page {page} of {Math.ceil(total / limit)}
-          </span>
-          <button
-            className="btn sm secondary"
-            disabled={page >= Math.ceil(total / limit)}
-            onClick={() => setPage((p) => p + 1)}
-          >
-            Next →
-          </button>
+          <button className="btn sm secondary" disabled={page === 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>← Prev</button>
+          <span style={{ fontSize: 13, color: "var(--text-2)" }}>Page {page} of {Math.ceil(total / limit)}</span>
+          <button className="btn sm secondary" disabled={page >= Math.ceil(total / limit)} onClick={() => setPage((p) => p + 1)}>Next →</button>
         </div>
       )}
     </div>

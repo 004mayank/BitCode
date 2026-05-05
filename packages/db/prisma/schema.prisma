@@ -86,6 +86,7 @@ model User {
   submissionReviews SubmissionReview[]
   payouts Payout[]
   stats UserStats?
+  externalApplications ExternalApplication[]
 
   // NextAuth relations
   accounts Account[]
@@ -403,4 +404,35 @@ model ExternalBounty {
   @@index([source, isOpen])
   @@index([type, isOpen])
   @@index([fetchedAt])
+
+  applications ExternalApplication[]
+}
+
+enum ExternalApplicationStatus {
+  SAVED        // bookmarked, haven't applied yet
+  APPLIED      // clicked through and applied
+  IN_PROGRESS  // actively working on it
+  SUBMITTED    // submitted a solution / report
+  WON          // awarded / bounty paid out
+  LOST         // closed without winning
+}
+
+model ExternalApplication {
+  id               String                    @id @default(cuid())
+  createdAt        DateTime                  @default(now())
+  updatedAt        DateTime                  @updatedAt
+
+  userId           String
+  externalBountyId String
+  status           ExternalApplicationStatus @default(SAVED)
+
+  submissionUrl    String?   // link to PR, report, or proof of submission
+  notes            String?   // private notes for the user
+
+  user          User           @relation(fields: [userId], references: [id])
+  externalBounty ExternalBounty @relation(fields: [externalBountyId], references: [id])
+
+  @@unique([userId, externalBountyId])
+  @@index([userId, createdAt])
+  @@index([userId, status])
 }
