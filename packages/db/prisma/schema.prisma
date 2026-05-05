@@ -516,11 +516,16 @@ model JobCandidate {
   followers     Int             @default(0)
   publicRepos   Int             @default(0)
 
-  // Scoring
-  matchScore    Int             @default(0)  // 0-100 composite
-  bitcodeScore  Int             @default(0)  // UserStats.reputationPts at discovery time
-  matchedRepos  Json?                        // [{name, url, stars, contributions}]
-  matchedSkills String[]
+  // Scoring — composite 100 pts
+  matchScore      Int     @default(0)   // composite 0-100
+  ecosystemScore  Int     @default(0)   // 0-25: contributed to popular repos in the space
+  usageScore      Int     @default(0)   // 0-35: their OWN repos contain required packages
+  popularityScore Int     @default(0)   // 0-10: followers / activity
+  bitcodeScore    Int     @default(0)   // 0-30: BitCode challenge score
+
+  matchedRepos    Json?                 // [{name, url, stars}] — ecosystem repos they contributed to
+  matchedSkills   String[]
+  usageEvidence   Json?                 // [{repo, file, packagesFound[]}] — direct usage proof
 
   // HR workflow
   status        CandidateStatus @default(NEW)

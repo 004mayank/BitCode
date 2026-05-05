@@ -28,6 +28,13 @@ interface Job {
   _count?: { candidates: number };
 }
 
+interface UsageHit {
+  repo: string;
+  repoUrl: string;
+  file: string;
+  packagesFound: string[];
+}
+
 interface Candidate {
   id: string;
   githubLogin: string;
@@ -39,9 +46,13 @@ interface Candidate {
   followers: number;
   publicRepos: number;
   matchScore: number;
+  ecosystemScore: number;
+  usageScore: number;
+  popularityScore: number;
   bitcodeScore: number;
   matchedRepos?: Array<{ name: string; url: string; stars: number }> | null;
   matchedSkills: string[];
+  usageEvidence?: UsageHit[] | null;
   status: CandidateStatus;
   hrNotes?: string | null;
 }
@@ -162,7 +173,7 @@ function PostJobForm({ onPosted }: { onPosted: (job: Job) => void }) {
         <label style={{ fontSize: 12, color: "var(--text-2)", fontWeight: 600 }}>
           Skills / Tech Tags *
           <span style={{ fontWeight: 400, marginLeft: 6, color: "var(--text-3)" }}>
-            (comma-separated — used to find candidates on GitHub)
+            (comma-separated, used to find candidates on GitHub)
           </span>
         </label>
         <input className="input" placeholder="e.g. python, langchain, rag, vector-database, llm"
@@ -207,8 +218,10 @@ function CandidateCard({
   const [saving, setSaving] = useState(false);
   const [notes, setNotes]   = useState(c.hrNotes ?? "");
   const [showNotes, setShowNotes] = useState(false);
+  const [showScores, setShowScores] = useState(false);
   const meta = CANDIDATE_STATUS_META[c.status];
   const repos = (c.matchedRepos as any[]) ?? [];
+  const evidence = (c.usageEvidence as UsageHit[] | null) ?? [];
 
   async function updateStatus(status: CandidateStatus) {
     setSaving(true);
@@ -287,11 +300,35 @@ function CandidateCard({
             <span>📁 {c.publicRepos} repos</span>
           </div>
 
-          {/* Matched repos */}
+          {/* Verified Usage (own repos) */}
+          {evidence.length > 0 && (
+            <div style={{ marginTop: 10, padding: "8px 12px", borderRadius: 8, background: "rgba(16,185,129,0.06)", border: "1px solid rgba(16,185,129,0.2)" }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "var(--green)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>
+                Verified usage in their repos
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                {evidence.slice(0, 3).map((hit) => (
+                  <div key={hit.repo} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
+                    <a href={hit.repoUrl} target="_blank" rel="noopener noreferrer"
+                      style={{ color: "var(--green)", textDecoration: "none", fontWeight: 600 }}>
+                      {hit.repo}
+                    </a>
+                    <span style={{ color: "var(--text-3)" }}>{hit.file}</span>
+                    <span style={{ color: "var(--text-2)" }}>
+                      {hit.packagesFound.slice(0, 3).join(", ")}
+                      {hit.packagesFound.length > 3 ? ` +${hit.packagesFound.length - 3}` : ""}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Matched repos (ecosystem contributions) */}
           {repos.length > 0 && (
             <div style={{ marginTop: 10 }}>
               <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 5 }}>
-                Matched via
+                Contributed to
               </div>
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                 {repos.slice(0, 4).map((r: any) => (
@@ -307,6 +344,36 @@ function CandidateCard({
               </div>
             </div>
           )}
+
+          {/* Score breakdown (expandable) */}
+          <div style={{ marginTop: 10 }}>
+            <button
+              onClick={() => setShowScores((v) => !v)}
+              style={{ fontSize: 11, color: "var(--text-3)", background: "none", border: "none", cursor: "pointer", padding: 0 }}
+            >
+              {showScores ? "Hide" : "Show"} score breakdown
+            </button>
+            {showScores && (
+              <div style={{ marginTop: 6, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {[
+                  { label: "Usage",      value: c.usageScore,      max: 35, color: "#10b981" },
+                  { label: "Ecosystem",  value: c.ecosystemScore,  max: 25, color: "#60a5fa" },
+                  { label: "Popularity", value: c.popularityScore, max: 10, color: "#f59e0b" },
+                  { label: "BitCode",    value: c.bitcodeScore > 30 ? 30 : c.bitcodeScore, max: 30, color: "#a78bfa" },
+                ].map((s) => (
+                  <div key={s.label} style={{ fontSize: 11, textAlign: "center", minWidth: 60 }}>
+                    <div style={{ fontWeight: 700, color: s.color }}>{s.value}/{s.max}</div>
+                    <div style={{ color: "var(--text-3)", marginTop: 2 }}>{s.label}</div>
+                    <div style={{
+                      height: 3, borderRadius: 2, marginTop: 3,
+                      background: `linear-gradient(90deg, ${s.color} ${(s.value / s.max) * 100}%, var(--border) ${(s.value / s.max) * 100}%)`,
+                      width: 60,
+                    }} />
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
 
           {/* HR notes */}
           {c.hrNotes && !showNotes && (

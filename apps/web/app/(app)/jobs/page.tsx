@@ -10,7 +10,7 @@ export default async function JobsPage() {
       <div>
         <div style={{ fontSize: 22, fontWeight: 800 }}>Jobs</div>
         <div style={{ color: "var(--text-2)", marginTop: 4 }}>
-          Find AI/ML roles — or post a job and let us find you matching open-source talent from GitHub.
+          Find AI/ML roles, or post a job and let us find you matching open-source talent from GitHub.
         </div>
       </div>
       <Jobs currentUserId={userId} />
