@@ -74,10 +74,11 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  email     String?  @unique
-  name      String?
-  image     String?
-  github    String?  @unique
+  email         String?   @unique
+  emailVerified DateTime?
+  name          String?
+  image         String?
+  github        String?   @unique
 
   attempts  Attempt[]
 
